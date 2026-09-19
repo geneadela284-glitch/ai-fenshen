@@ -1,0 +1,381 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
+    <title>Speaker Management Browser Harness</title>
+    <style>
+      :root {
+        --af-surface: #0c1930;
+        --af-surface-strong: #101f3c;
+        --af-text-primary: #edf4ff;
+        --af-text-secondary: #a9b9d4;
+        --af-border-subtle: rgba(127, 177, 255, 0.22);
+        --af-primary: #79a9ff;
+        --af-danger: #cc6565;
+        --af-focus-ring: #b5d0ff;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: #07111f;
+        padding: 24px;
+        color: var(--af-text-primary);
+        font-family: system-ui, sans-serif;
+      }
+
+      #outside-focus {
+        min-height: 44px;
+        margin-bottom: 16px;
+      }
+    </style>
+  </head>
+  <body>
+    <p>TEST-ONLY: deterministic Speaker Management browser harness</p>
+    <button id="outside-focus" type="button">外部测试焦点</button>
+    <div id="root"></div>
+
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import { SpeakerManagementPanel } from './SpeakerManagementPanel.jsx';
+
+      const clone = (value) => structuredClone(value);
+      const bindingKey = (meetingId, transcriptId) => `${meetingId}::${transcriptId}`;
+      const state = {
+        bindings: new Map(),
+        calls: {
+          projectionReads: 0,
+          historyReads: 0,
+          rename: 0,
+          merge: 0,
+          split: 0,
+          reassign: 0
+        },
+        mutations: [],
+        errors: [],
+        mutationMode: 'immediate-success',
+        pendingMutation: null,
+        currentBinding: null
+      };
+
+      let root = createRoot(document.querySelector('#root'));
+
+      function makeProjection({ meetingId, transcriptId, label }) {
+        return {
+          meetingId,
+          transcriptId,
+          transcriptRevision: 1,
+          baseDiarizationRevisionId: `base-${meetingId}`,
+          baseDiarizationRevision: 1,
+          baseDiarizationSnapshotHash: 'a'.repeat(64),
+          correctionRevisionId: null,
+          correctionRevision: 0,
+          hasCorrections: false,
+          speakerRefs: [
+            { speakerId: 'speaker-1', displayLabel: label, labelSource: 'user_entered', state: 'active', mergedIntoSpeakerId: null },
+            { speakerId: 'speaker-2', displayLabel: '记录员', labelSource: 'user_entered', state: 'active', mergedIntoSpeakerId: null }
+          ],
+          segments: [
+            {
+              rawSegment: { segmentId: 'segment-1', startMs: 0, endMs: 1_000, text: '第一段完整内容' },
+              rawDiarization: { speakerRef: 'speaker-1', confidence: 0.9, source: 'test' },
+              effectiveSpeaker: { speakerRef: 'speaker-1', displayLabel: label, labelSource: 'user_entered', state: 'active' }
+            },
+            {
+              rawSegment: { segmentId: 'segment-2', startMs: 1_000, endMs: 2_000, text: '第二段完整内容' },
+              rawDiarization: { speakerRef: 'speaker-1', confidence: 0.9, source: 'test' },
+              effectiveSpeaker: { speakerRef: 'speaker-1', displayLabel: label, labelSource: 'user_entered', state: 'active' }
+            },
+            {
+              rawSegment: { segmentId: 'segment-3', startMs: 2_000, endMs: 3_000, text: '第三段完整内容' },
+              rawDiarization: { speakerRef: 'speaker-2', confidence: 0.9, source: 'test' },
+              effectiveSpeaker: { speakerRef: 'speaker-2', displayLabel: '记录员', labelSource: 'user_entered', state: 'active' }
+            },
+            {
+              rawSegment: { segmentId: 'segment-4', startMs: 3_000, endMs: 4_000, text: '未识别完整内容' },
+              rawDiarization: { speakerRef: 'unknown', confidence: null, source: 'unknown' },
+              effectiveSpeaker: { speakerRef: 'unknown', displayLabel: '未识别说话人', labelSource: 'unknown', state: 'unknown' }
+            }
+          ]
+        };
+      }
+
+      function emptyHistory({ meetingId, transcriptId }) {
+        return {
+          baseRevision: {
+            meetingId,
+            transcriptId,
+            transcriptRevision: 1,
+            baseDiarizationRevisionId: `base-${meetingId}`,
+            baseDiarizationRevision: 1,
+            baseDiarizationSnapshotHash: 'a'.repeat(64)
+          },
+          currentCorrectionRevision: 0,
+          correctionRevisions: []
+        };
+      }
+
+      function deferred() {
+        let resolve;
+        const promise = new Promise((done) => { resolve = done; });
+        return { promise, resolve, resolved: false };
+      }
+
+      function configuredBinding({ meetingId, transcriptId, label, deferLoad = false }) {
+        const entry = {
+          projection: makeProjection({ meetingId, transcriptId, label }),
+          history: emptyHistory({ meetingId, transcriptId }),
+          loadGate: deferLoad ? deferred() : null,
+          mutationRequests: new Map(),
+          nextSpeakerNumber: 3
+        };
+        state.bindings.set(bindingKey(meetingId, transcriptId), entry);
+        return entry;
+      }
+
+      function currentEntry(input) {
+        const entry = state.bindings.get(bindingKey(input.meetingId, input.transcriptId));
+        if (!entry) throw new Error('HARNESS_BINDING_NOT_CONFIGURED');
+        return entry;
+      }
+
+      function mutationError(code) {
+        const error = new Error(code);
+        error.code = code;
+        return error;
+      }
+
+      function assertMutationBinding(entry, input) {
+        const projection = entry.projection;
+        if (
+          input.expectedTranscriptRevision !== projection.transcriptRevision
+          || input.baseDiarizationRevisionId !== projection.baseDiarizationRevisionId
+          || input.expectedCorrectionRevision !== projection.correctionRevision
+        ) {
+          throw mutationError('SPEAKER_CORRECTION_CAS_CONFLICT');
+        }
+        if (typeof input.mutationRequestId !== 'string' || !input.mutationRequestId.trim()) {
+          throw mutationError('SPEAKER_CORRECTION_MUTATION_REQUEST_ID_REQUIRED');
+        }
+      }
+
+      function beginMutation(operation, input) {
+        const entry = currentEntry(input);
+        assertMutationBinding(entry, input);
+        state.calls[operation] += 1;
+        state.mutations.push({ operation, input: clone(input) });
+        const fingerprint = JSON.stringify({ operation, input: { ...input, mutationRequestId: undefined } });
+        const previous = entry.mutationRequests.get(input.mutationRequestId);
+        if (previous && previous !== fingerprint) throw mutationError('SPEAKER_CORRECTION_FINGERPRINT_CONFLICT');
+        return { entry, fingerprint, replayed: Boolean(previous) };
+      }
+
+      function commitRevision(entry, operation, change, mutateProjection) {
+        mutateProjection();
+        const correctionRevision = entry.projection.correctionRevision + 1;
+        const correctionRevisionId = `correction-${entry.projection.meetingId}-${correctionRevision}`;
+        entry.projection.correctionRevision = correctionRevision;
+        entry.projection.correctionRevisionId = correctionRevisionId;
+        entry.projection.hasCorrections = true;
+        entry.history.currentCorrectionRevision = correctionRevision;
+        entry.history.correctionRevisions.push({
+          correctionRevision,
+          correctionRevisionId,
+          audit: {
+            operation,
+            occurredAt: `2026-08-10T00:0${correctionRevision}:00.000Z`,
+            changes: [clone(change)]
+          }
+        });
+      }
+
+      function finishMutation(context, input) {
+        context.entry.mutationRequests.set(input.mutationRequestId, context.fingerprint);
+        return { replayed: false };
+      }
+
+      function applyRename(context, input) {
+        const speaker = context.entry.projection.speakerRefs.find((candidate) => candidate.speakerId === input.speakerId && candidate.state === 'active');
+        if (!speaker) throw mutationError('SPEAKER_CORRECTION_SPEAKER_NOT_FOUND');
+        const previousDisplayLabel = speaker.displayLabel;
+        commitRevision(context.entry, 'rename', {
+          speakerId: input.speakerId,
+          previousDisplayLabel,
+          displayLabel: input.displayLabel
+        }, () => {
+          context.entry.projection.speakerRefs = context.entry.projection.speakerRefs.map((candidate) => (
+            candidate.speakerId === input.speakerId ? { ...candidate, displayLabel: input.displayLabel } : candidate
+          ));
+          context.entry.projection.segments = context.entry.projection.segments.map((segment) => (
+            segment.effectiveSpeaker.speakerRef === input.speakerId
+              ? { ...segment, effectiveSpeaker: { ...segment.effectiveSpeaker, displayLabel: input.displayLabel } }
+              : segment
+          ));
+        });
+      }
+
+      function applyMerge(context, input) {
+        const selected = new Set(input.speakerIds);
+        const sources = input.speakerIds.filter((speakerId) => speakerId !== input.targetSpeakerId);
+        const target = context.entry.projection.speakerRefs.find((speaker) => speaker.speakerId === input.targetSpeakerId && speaker.state === 'active');
+        if (!target || selected.size < 2 || sources.length !== selected.size - 1) throw mutationError('SPEAKER_CORRECTION_SELECTION_INVALID');
+        commitRevision(context.entry, 'merge', {
+          sourceSpeakerIds: sources,
+          targetSpeakerId: input.targetSpeakerId
+        }, () => {
+          context.entry.projection.speakerRefs = context.entry.projection.speakerRefs.map((speaker) => (
+            sources.includes(speaker.speakerId)
+              ? { ...speaker, state: 'merged', mergedIntoSpeakerId: input.targetSpeakerId }
+              : speaker
+          ));
+          context.entry.projection.segments = context.entry.projection.segments.map((segment) => (
+            sources.includes(segment.effectiveSpeaker.speakerRef)
+              ? { ...segment, effectiveSpeaker: { ...segment.effectiveSpeaker, speakerRef: target.speakerId, displayLabel: target.displayLabel, state: 'active' } }
+              : segment
+          ));
+        });
+      }
+
+      function applySplit(context, input) {
+        const selected = new Set(input.transcriptSegmentIds);
+        const sourceSegments = context.entry.projection.segments.filter((segment) => segment.effectiveSpeaker.speakerRef === input.speakerId);
+        if (!selected.size || selected.size >= sourceSegments.length) throw mutationError('SPEAKER_CORRECTION_SELECTION_INVALID');
+        const speakerNumber = context.entry.nextSpeakerNumber++;
+        const newSpeakerId = `speaker-${speakerNumber}`;
+        const newDisplayLabel = `新说话人 ${speakerNumber}`;
+        commitRevision(context.entry, 'split', {
+          sourceSpeakerId: input.speakerId,
+          newSpeakerId,
+          transcriptSegmentIds: input.transcriptSegmentIds
+        }, () => {
+          context.entry.projection.speakerRefs.push({
+            speakerId: newSpeakerId,
+            displayLabel: newDisplayLabel,
+            labelSource: 'user_entered',
+            state: 'active',
+            mergedIntoSpeakerId: null
+          });
+          context.entry.projection.segments = context.entry.projection.segments.map((segment) => (
+            selected.has(segment.rawSegment.segmentId)
+              ? { ...segment, effectiveSpeaker: { ...segment.effectiveSpeaker, speakerRef: newSpeakerId, displayLabel: newDisplayLabel, state: 'active' } }
+              : segment
+          ));
+        });
+      }
+
+      function applyReassign(context, input) {
+        const selected = new Set(input.transcriptSegmentIds);
+        const target = input.targetSpeakerId === 'unknown'
+          ? { speakerId: 'unknown', displayLabel: '未识别说话人', state: 'unknown' }
+          : context.entry.projection.speakerRefs.find((speaker) => speaker.speakerId === input.targetSpeakerId && speaker.state === 'active');
+        if (!selected.size || !target) throw mutationError('SPEAKER_CORRECTION_SELECTION_INVALID');
+        commitRevision(context.entry, 'reassign', {
+          transcriptSegmentIds: input.transcriptSegmentIds,
+          targetSpeakerId: input.targetSpeakerId
+        }, () => {
+          context.entry.projection.segments = context.entry.projection.segments.map((segment) => (
+            selected.has(segment.rawSegment.segmentId)
+              ? { ...segment, effectiveSpeaker: { ...segment.effectiveSpeaker, speakerRef: target.speakerId, displayLabel: target.displayLabel, state: target.state } }
+              : segment
+          ));
+        });
+      }
+
+      const manager = {
+        async getSpeakerProjection(input) {
+          state.calls.projectionReads += 1;
+          const entry = currentEntry(input);
+          if (entry.loadGate && !entry.loadGate.resolved) await entry.loadGate.promise;
+          return clone(entry.projection);
+        },
+        async getCorrectionHistory(input) {
+          state.calls.historyReads += 1;
+          return clone(currentEntry(input).history);
+        },
+        async renameSpeaker(input) {
+          const context = beginMutation('rename', input);
+          if (state.mutationMode === 'safe-conflict') {
+            const error = new Error('test conflict');
+            error.code = 'SPEAKER_CORRECTION_CAS_CONFLICT';
+            throw error;
+          }
+          if (context.replayed) return { replayed: true };
+          if (state.mutationMode === 'pending-replay') {
+            state.pendingMutation = deferred();
+            await state.pendingMutation.promise;
+            applyRename(context, input);
+            finishMutation(context, input);
+            return { replayed: true };
+          }
+          applyRename(context, input);
+          return finishMutation(context, input);
+        },
+        async mergeSpeakers(input) {
+          const context = beginMutation('merge', input);
+          if (context.replayed) return { replayed: true };
+          applyMerge(context, input);
+          return finishMutation(context, input);
+        },
+        async splitSpeaker(input) {
+          const context = beginMutation('split', input);
+          if (context.replayed) return { replayed: true };
+          applySplit(context, input);
+          return finishMutation(context, input);
+        },
+        async reassignSegments(input) {
+          const context = beginMutation('reassign', input);
+          if (context.replayed) return { replayed: true };
+          applyReassign(context, input);
+          return finishMutation(context, input);
+        }
+      };
+
+      function renderBinding({ meetingId, transcriptId }) {
+        state.currentBinding = { meetingId, transcriptId };
+        root.render(React.createElement(SpeakerManagementPanel, {
+          speakerCorrectionManager: manager,
+          meetingId,
+          transcriptId
+        }));
+      }
+
+      window.addEventListener('error', (event) => state.errors.push(String(event.error?.message || event.message)));
+      window.addEventListener('unhandledrejection', (event) => state.errors.push(String(event.reason?.message || event.reason)));
+
+      window.__speakerHarness = Object.freeze({
+        ready: true,
+        configureBinding: configuredBinding,
+        renderBinding,
+        resolveLoad({ meetingId, transcriptId }) {
+          const gate = currentEntry({ meetingId, transcriptId }).loadGate;
+          if (gate && !gate.resolved) {
+            gate.resolved = true;
+            gate.resolve();
+          }
+        },
+        unmount() {
+          root.unmount();
+        },
+        remount({ meetingId, transcriptId }) {
+          root = createRoot(document.querySelector('#root'));
+          renderBinding({ meetingId, transcriptId });
+        },
+        setMutationMode(mode) {
+          state.mutationMode = mode;
+          state.pendingMutation = null;
+        },
+        resolveMutation() {
+          if (!state.pendingMutation || state.pendingMutation.resolved) throw new Error('HARNESS_MUTATION_NOT_PENDING');
+          state.pendingMutation.resolved = true;
+          state.pendingMutation.resolve();
+        },
+        metrics() {
+          return clone({ calls: state.calls, mutations: state.mutations, errors: state.errors, mutationMode: state.mutationMode });
+        }
+      });
+    </script>
+  </body>
+</html>

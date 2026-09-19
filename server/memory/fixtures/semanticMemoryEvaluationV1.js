@@ -1,0 +1,122 @@
+function expected(intent, relation, predicate, qualifiers = {}, value = null) {
+  return Object.freeze({ intent, relation, predicate, qualifiers: Object.freeze(qualifiers), value });
+}
+
+function row(id, input, output, context = {}) {
+  return Object.freeze({ id, input, context: Object.freeze(context), expected: output });
+}
+
+export const SEMANTIC_MEMORY_EVALUATION_V1 = Object.freeze([
+  row('lunar-01', '我妈妈阴历七月十六生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16 })),
+  row('lunar-02', '我妈生日是农历7月16', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16 })),
+  row('lunar-03', '老太太每年阴历七月十六过生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16, recurrence: 'yearly' })),
+  row('lunar-04', '记一下，我母亲农历七月十六过生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16 })),
+  row('lunar-05', '请记录我妈妈是阴历7月16日生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16 })),
+  row('lunar-06', '我爸农历腊月初八生日', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'lunar', month: 12, day: 8 })),
+  row('lunar-07', '父亲是阴历正月十五出生的', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'lunar', month: 1, day: 15 })),
+  row('lunar-08', '女儿每年农历八月初三过生日', expected('memory_candidate', 'daughter', 'birthday', { calendar_type: 'lunar', month: 8, day: 3, recurrence: 'yearly' })),
+  row('lunar-09', '孩子生日在阴历十一月二十', expected('memory_candidate', 'daughter', 'birthday', { calendar_type: 'lunar', month: 11, day: 20 })),
+  row('lunar-10', '我妈是闰四月初二生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 4, day: 2, lunar_leap_month: true })),
+  row('lunar-11', '妈妈不是闰月，是农历四月初二', expected('memory_correction', 'mother', 'birthday', { calendar_type: 'lunar', month: 4, day: 2, lunar_leap_month: false })),
+  row('lunar-12', '我妈妈农历七月十六出生，年份记不清', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 16, year: null })),
+  row('lunar-13', '母亲一九六五年农历六月廿九出生', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'lunar', year: 1965, month: 6, day: 29 })),
+  row('lunar-14', '我爸阴历九月三十过生日', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'lunar', month: 9, day: 30 })),
+  row('lunar-15', '老爸农历二月初一生日，记住', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'lunar', month: 2, day: 1 })),
+
+  row('gregorian-01', '我妈妈是公历7月16日生日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'gregorian', month: 7, day: 16 })),
+  row('gregorian-02', '我妈生日是阳历七月十六', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'gregorian', month: 7, day: 16 })),
+  row('gregorian-03', '母亲出生于1965年7月16日', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'gregorian', year: 1965, month: 7, day: 16 })),
+  row('gregorian-04', '我女儿2012年6月8日出生', expected('memory_candidate', 'daughter', 'birthday', { calendar_type: 'gregorian', year: 2012, month: 6, day: 8 })),
+  row('gregorian-05', '孩子生日是6月8号', expected('memory_candidate', 'daughter', 'birthday', { calendar_type: 'unknown', month: 6, day: 8 })),
+  row('gregorian-06', '我爸是1958年12月2日出生的', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'gregorian', year: 1958, month: 12, day: 2 })),
+  row('gregorian-07', '老爸阳历十二月二号生日', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'gregorian', month: 12, day: 2 })),
+  row('gregorian-08', '女儿每年六月八日过生日', expected('memory_candidate', 'daughter', 'birthday', { calendar_type: 'unknown', month: 6, day: 8, recurrence: 'yearly' })),
+  row('gregorian-09', '我母亲的出生日期是1965-07-16', expected('memory_candidate', 'mother', 'birthday', { calendar_type: 'gregorian', year: 1965, month: 7, day: 16 })),
+  row('gregorian-10', '爸爸生日7/21', expected('memory_candidate', 'father', 'birthday', { calendar_type: 'unknown', month: 7, day: 21 })),
+
+  row('likes-01', '我女儿喜欢苹果', expected('memory_candidate', 'daughter', 'likes_food', { cardinality: 'multiple' }, ['苹果'])),
+  row('likes-02', '她也喜欢草莓', expected('memory_candidate', 'daughter', 'likes_food', { cardinality: 'multiple' }, ['草莓']), { previous_entity: 'daughter', previous_predicate: 'likes_food' }),
+  row('likes-03', '孩子爱吃芒果和香蕉', expected('memory_candidate', 'daughter', 'likes_food', { cardinality: 'multiple' }, ['芒果', '香蕉'])),
+  row('likes-04', '我妈喜欢喝茉莉花茶', expected('memory_candidate', 'mother', 'likes_drink', { cardinality: 'multiple' }, ['茉莉花茶'])),
+  row('likes-05', '母亲也爱吃面条', expected('memory_candidate', 'mother', 'likes_food', { cardinality: 'multiple' }, ['面条'])),
+  row('likes-06', '我爸爸喜欢钓鱼', expected('memory_candidate', 'father', 'likes_activity', { cardinality: 'multiple' }, ['钓鱼'])),
+  row('likes-07', '老爸爱看历史纪录片', expected('memory_candidate', 'father', 'likes_media', { cardinality: 'multiple' }, ['历史纪录片'])),
+  row('likes-08', '我女儿最喜欢草莓', expected('memory_candidate', 'daughter', 'favorite_food', { cardinality: 'single', degree: 'favorite' }, '草莓')),
+  row('likes-09', '她最爱吃芒果', expected('memory_candidate', 'daughter', 'favorite_food', { cardinality: 'single', degree: 'favorite' }, '芒果'), { previous_entity: 'daughter' }),
+  row('likes-10', '妈妈最喜欢的水果是苹果', expected('memory_candidate', 'mother', 'favorite_food', { cardinality: 'single', degree: 'favorite' }, '苹果')),
+  row('likes-11', '爸爸最爱喝龙井', expected('memory_candidate', 'father', 'favorite_drink', { cardinality: 'single', degree: 'favorite' }, '龙井')),
+  row('likes-12', '女儿喜欢苹果、草莓和葡萄', expected('memory_candidate', 'daughter', 'likes_food', { cardinality: 'multiple' }, ['苹果', '草莓', '葡萄'])),
+  row('likes-13', '她最近喜欢画画', expected('memory_candidate', 'daughter', 'likes_activity', { temporal_scope: 'recent' }, ['画画']), { previous_entity: 'daughter' }),
+  row('likes-14', '妈妈一直喜欢听越剧', expected('memory_candidate', 'mother', 'likes_media', { temporal_scope: 'stable' }, ['越剧'])),
+  row('likes-15', '我父亲对辣的食物没有偏好', expected('memory_negation', 'father', 'likes_food', { negation: true }, ['辣的食物'])),
+
+  row('correct-01', '我说错了，我妈妈是农历7月17日生日', expected('memory_correction', 'mother', 'birthday', { calendar_type: 'lunar', month: 7, day: 17 })),
+  row('correct-02', '妈妈生日不是七月十六，是七月十七', expected('memory_correction', 'mother', 'birthday', { month: 7, day: 17 })),
+  row('correct-03', '更正一下，我爸是公历12月3号生日', expected('memory_correction', 'father', 'birthday', { calendar_type: 'gregorian', month: 12, day: 3 })),
+  row('correct-04', '我刚才记错了，女儿是2012年6月9日出生', expected('memory_correction', 'daughter', 'birthday', { calendar_type: 'gregorian', year: 2012, month: 6, day: 9 })),
+  row('correct-05', '不是公历，是农历', expected('memory_correction', 'mother', 'birthday', { calendar_type: 'lunar' }), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+  row('correct-06', '刚才那个日期是阴历的', expected('memory_correction', 'mother', 'birthday', { calendar_type: 'lunar' }), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+  row('correct-07', '我说错了，是七月十六', expected('memory_correction', 'mother', 'birthday', { month: 7, day: 16 }), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+  row('correct-08', '她最喜欢的不是草莓，是芒果', expected('memory_correction', 'daughter', 'favorite_food', { degree: 'favorite' }, '芒果'), { previous_entity: 'daughter' }),
+  row('correct-09', '爸爸最爱喝的改成普洱', expected('memory_correction', 'father', 'favorite_drink', { degree: 'favorite' }, '普洱')),
+  row('correct-10', '妈妈现在喜欢苹果和梨', expected('memory_correction', 'mother', 'likes_food', { temporal_scope: 'current' }, ['苹果', '梨'])),
+  row('correct-11', '刚才说的她是我女儿，不是我妹妹', expected('memory_correction', 'daughter', null, {}, null), { previous_entity: 'other' }),
+  row('correct-12', '日期没错，只是要改成农历', expected('memory_correction', 'mother', 'birthday', { calendar_type: 'lunar' }), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+
+  row('negate-01', '不是苹果，她不喜欢苹果', expected('memory_negation', 'daughter', 'likes_food', { negation: true }, ['苹果']), { previous_entity: 'daughter' }),
+  row('negate-02', '女儿已经不喜欢草莓了', expected('memory_negation', 'daughter', 'likes_food', { negation: true, temporal_scope: 'current' }, ['草莓'])),
+  row('negate-03', '妈妈不爱喝咖啡', expected('memory_negation', 'mother', 'likes_drink', { negation: true }, ['咖啡'])),
+  row('negate-04', '爸爸从来不喜欢打麻将', expected('memory_negation', 'father', 'likes_activity', { negation: true }, ['打麻将'])),
+  row('negate-05', '我女儿不是最喜欢苹果', expected('memory_negation', 'daughter', 'favorite_food', { negation: true, degree: 'favorite' }, '苹果')),
+  row('delete-01', '删除我妈妈的生日记录', expected('memory_delete', 'mother', 'birthday')),
+  row('delete-02', '忘掉我爸的生日', expected('memory_delete', 'father', 'birthday')),
+  row('delete-03', '把女儿喜欢苹果这条删掉', expected('memory_delete', 'daughter', 'likes_food', {}, ['苹果'])),
+  row('delete-04', '不要再记着妈妈喜欢咖啡', expected('memory_delete', 'mother', 'likes_drink', {}, ['咖啡'])),
+  row('delete-05', '删掉刚才那条', expected('memory_delete', 'daughter', 'likes_food'), { previous_entity: 'daughter', previous_predicate: 'likes_food' }),
+
+  row('context-01', '她还喜欢草莓', expected('memory_candidate', 'daughter', 'likes_food', { cardinality: 'multiple' }, ['草莓']), { previous_entity: 'daughter', previous_predicate: 'likes_food' }),
+  row('context-02', '那她生日呢', expected('memory_query', 'daughter', 'birthday'), { previous_entity: 'daughter', previous_predicate: 'likes_food' }),
+  row('context-03', '刚才说的那个日期是哪天', expected('memory_query', 'mother', 'birthday'), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+  row('context-04', '她是什么时候出生的', expected('memory_query', 'daughter', 'birthday'), { previous_entity: 'daughter' }),
+  row('context-05', '他最喜欢什么', expected('memory_query', 'father', 'favorite_preference'), { previous_entity: 'father' }),
+  row('context-06', '她喜欢什么', expected('memory_query', 'daughter', 'likes_food'), { previous_entity: 'daughter' }),
+  row('context-07', '还有呢', expected('memory_query', 'daughter', 'likes_food'), { previous_entity: 'daughter', previous_predicate: 'likes_food', previously_returned_values: ['苹果', '草莓'] }),
+  row('context-08', '还喜欢吃什么', expected('memory_query', 'daughter', 'likes_food'), { previous_entity: 'daughter', previous_predicate: 'likes_food', previously_returned_values: ['苹果'] }),
+  row('context-09', '那我妈呢', expected('memory_query', 'mother', 'birthday'), { previous_entity: 'father', previous_predicate: 'birthday' }),
+  row('context-10', '日期改成十七号', expected('memory_correction', 'mother', 'birthday', { day: 17 }), { previous_entity: 'mother', previous_predicate: 'birthday' }),
+  row('context-11', '也记在她名下', expected('ambiguous', 'daughter', null), { previous_entity: 'daughter' }),
+  row('context-12', '刚才那个不是长期的，只是最近这样', expected('memory_correction', 'daughter', 'likes_activity', { temporal_scope: 'temporary' }), { previous_entity: 'daughter', previous_predicate: 'likes_activity' }),
+
+  row('query-01', '我妈妈什么时候生日', expected('memory_query', 'mother', 'birthday')),
+  row('query-02', '我妈是哪天出生的', expected('memory_query', 'mother', 'birthday')),
+  row('query-03', '爸爸生日是几月几号', expected('memory_query', 'father', 'birthday')),
+  row('query-04', '女儿喜欢吃什么', expected('memory_query', 'daughter', 'likes_food')),
+  row('query-05', '我女儿最喜欢什么水果', expected('memory_query', 'daughter', 'favorite_food')),
+  row('query-06', '妈妈还喜欢哪些食物', expected('memory_query', 'mother', 'likes_food')),
+  row('query-07', '今年妈妈生日对应公历哪一天', expected('memory_query', 'mother', 'birthday', { calendar_type: 'gregorian', temporal_scope: 'this_year' })),
+  row('query-08', '我爸爸什么时候出生', expected('memory_query', 'father', 'birthday')),
+  row('query-09', '孩子的生日你记得吗', expected('memory_query', 'daughter', 'birthday')),
+  row('query-10', '关于她你还记得什么', expected('memory_query', 'daughter', null), { previous_entity: 'daughter' }),
+
+  row('scope-01', '新对话里问我妈妈生日', expected('memory_query', 'mother', 'birthday'), { lifecycle: 'new_conversation' }),
+  row('scope-02', '重新登录后问女儿喜欢什么', expected('memory_query', 'daughter', 'likes_food'), { lifecycle: 'relogin' }),
+  row('scope-03', '服务重启后问爸爸生日', expected('memory_query', 'father', 'birthday'), { lifecycle: 'service_restart' }),
+  row('scope-04', '另一个用户的妈妈生日是什么', expected('memory_query', 'mother', 'birthday'), { owner_scope: 'current_only' }),
+  row('scope-05', '她还喜欢什么', expected('memory_query', 'daughter', 'likes_food'), { previous_entity: 'daughter', owner_scope: 'current_only' }),
+  row('scope-06', '那个用户的女儿喜欢什么', expected('ambiguous', 'unknown', 'likes_food'), { owner_scope: 'current_only' }),
+
+  row('safety-01', '今天心情不错', expected('ordinary_chat', 'unknown', null)),
+  row('safety-02', '帮我写一段介绍', expected('ordinary_chat', 'unknown', null)),
+  row('safety-03', '我妈好像七月过生日', expected('ambiguous', 'mother', 'birthday', { uncertainty: true })),
+  row('safety-04', '她生日大概是十六号', expected('ambiguous', 'daughter', 'birthday', { uncertainty: true }), { previous_entity: 'daughter' }),
+  row('safety-05', '记住这个', expected('ambiguous', 'unknown', null)),
+  row('safety-06', '她喜欢那个', expected('ambiguous', 'daughter', 'likes_food'), { previous_entity: 'daughter' }),
+  row('safety-07', '妈妈生日', expected('ambiguous', 'mother', 'birthday')),
+  row('safety-08', '我女儿可能喜欢苹果', expected('ambiguous', 'daughter', 'likes_food', { uncertainty: true }, ['苹果'])),
+  row('safety-09', '把日期改一下', expected('ambiguous', 'unknown', 'birthday')),
+  row('safety-10', '还有', expected('ambiguous', 'unknown', null))
+]);
+
+if (SEMANTIC_MEMORY_EVALUATION_V1.length !== 100) {
+  throw new Error(`Semantic Memory Evaluation V1 must contain exactly 100 cases; got ${SEMANTIC_MEMORY_EVALUATION_V1.length}.`);
+}

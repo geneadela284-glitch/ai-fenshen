@@ -1,0 +1,3 @@
+const bursts=[{x:22,y:27,delay:0,color:'#ffe098'},{x:75,y:23,delay:.55,color:'#ffb5b2'},{x:48,y:40,delay:1.15,color:'#a7e6e1'},{x:18,y:55,delay:1.9,color:'#ffd486'},{x:80,y:51,delay:2.5,color:'#e0bbff'}];
+const rays=Array.from({length:20},(_,i)=>{const angle=i*Math.PI/10,reach=i%2?66:95;return {x:Math.cos(angle)*reach,y:Math.sin(angle)*reach};});
+export default function Fireworks(){return <div className="pg-fireworks" aria-hidden="true">{bursts.map((b,i)=><span className="pg-firework-burst" key={i} style={{left:`${b.x}%`,top:`${b.y}%`,'--burst-delay':`${b.delay}s`,'--spark-color':b.color}}>{rays.map((r,j)=><i className="pg-spark" key={j} style={{'--dx':`${r.x}px`,'--dy':`${r.y}px`}}/>)}</span>)}</div>;}

@@ -1,0 +1,525 @@
+<!doctype html>
+<html lang="zh-CN" data-af-theme="deep-blue">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Stage3C Recording Experience Browser Acceptance</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --acceptance-background: radial-gradient(circle at 10% 0%, var(--af-background-elevated) 0, transparent 42%), var(--af-background);
+      }
+
+      :root[data-af-theme="day-sky"] { color-scheme: light; }
+
+      *, *::before, *::after { box-sizing: border-box; }
+      html, body, #root { min-height: 100%; }
+      html { background: var(--acceptance-background); }
+      body {
+        margin: 0;
+        overflow: auto;
+        background: var(--acceptance-background);
+        font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      }
+      #root { display: grid; align-content: center; min-height: 100dvh; }
+      #outside-focus-target {
+        position: fixed;
+        left: -9999px;
+        top: 0;
+      }
+      .acceptance-multi-mount {
+        display: grid;
+        gap: 16px;
+        width: 100%;
+      }
+      @media (min-width: 960px) {
+        .acceptance-multi-mount { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      }
+    </style>
+  </head>
+  <body>
+    <button id="outside-focus-target" type="button">外部焦点测试</button>
+    <div id="root"></div>
+
+    <script type="module">
+      import React, { StrictMode } from 'react';
+      import { createRoot } from 'react-dom/client';
+      import '../../../index.css';
+      import { MeetingRecordingExperience } from './MeetingRecordingExperience.jsx';
+      import { createMeetingStage3cMicrophoneMeter } from '../../../lib/meetingStage3cMicrophoneMeter.js';
+      import { createMeetingStage3cRecordingExperience } from '../../../lib/meetingStage3cRecordingExperience.js';
+      import { THEME_TOKEN_KEYS, getThemeTokens } from '../../../prototypes/aiFenshen/prototypeState.js';
+
+      const NativeAudioContext = window.AudioContext || window.webkitAudioContext;
+      const originalMathRandom = Math.random;
+      const globalEvidence = {
+        errors: [],
+        randomCalls: 0
+      };
+      const resourceLedger = {
+        createdAudioContexts: 0,
+        closedAudioContexts: 0,
+        activeAudioContexts: 0,
+        createdTracks: 0,
+        stoppedTracks: 0,
+        activeTracks: 0,
+        injectedCloseRejections: 0,
+        closeErrors: [],
+        recoveredCloseErrors: 0,
+        runtimeDisposals: []
+      };
+      let rejectNextMeterClose = false;
+      const failedCloseRecords = [];
+      let nextRuntimeId = 1;
+      Math.random = (...args) => {
+        globalEvidence.randomCalls += 1;
+        return originalMathRandom(...args);
+      };
+
+      window.addEventListener('error', (event) => {
+        globalEvidence.errors.push(event.error?.message || event.message || '页面运行异常');
+      });
+      window.addEventListener('unhandledrejection', (event) => {
+        globalEvidence.errors.push(event.reason?.message || String(event.reason || '页面异步异常'));
+      });
+
+      const clone = (value) => structuredClone(value);
+      const themeProperty = (key) => `--af-${key.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`)}`;
+      function applyTheme(themeId) {
+        const resolvedThemeId = themeId === 'day' || themeId === 'day-sky' ? 'day-sky' : 'deep-blue';
+        const tokens = getThemeTokens(resolvedThemeId);
+        document.documentElement.dataset.afTheme = resolvedThemeId;
+        for (const key of THEME_TOKEN_KEYS) {
+          document.documentElement.style.setProperty(themeProperty(key), tokens[key]);
+        }
+      }
+      const delay = () => new Promise((resolve) => setTimeout(resolve, 0));
+      const deferred = () => {
+        let resolve;
+        let reject;
+        const promise = new Promise((resolvePromise, rejectPromise) => {
+          resolve = resolvePromise;
+          reject = rejectPromise;
+        });
+        return { promise, resolve, reject };
+      };
+
+      function rawSnapshot(scenario) {
+        const initial = {
+          ready: { recordingState: 'ready', interruptionReason: null, committedDurationMs: 0, recorderStatus: 'idle', actualStarted: false },
+          recording: { recordingState: 'recording', interruptionReason: null, committedDurationMs: 2_000, recorderStatus: 'recording', actualStarted: true },
+          user_pause: { recordingState: 'interrupted', interruptionReason: 'user_pause', committedDurationMs: 3_000, recorderStatus: 'inactive', actualStarted: false },
+          page_reload_recovery: { recordingState: 'interrupted', interruptionReason: 'page_reload_recovery', committedDurationMs: 4_000, recorderStatus: 'inactive', actualStarted: false },
+          stopped: { recordingState: 'stopped', interruptionReason: null, committedDurationMs: 5_000, recorderStatus: 'inactive', actualStarted: false }
+        }[scenario];
+        if (!initial) throw new TypeError('unknown recording acceptance scenario');
+        return {
+          active: {
+            meeting: {
+              meetingId: 'meeting-stage3c-mounted',
+              title: '产品讨论会',
+              recordingState: initial.recordingState,
+              interruptionReason: initial.interruptionReason,
+              committedDurationMs: initial.committedDurationMs
+            }
+          },
+          recorderStatus: initial.recorderStatus,
+          recorderInfo: initial.actualStarted ? { actualStarted: true } : null,
+          initialized: true
+        };
+      }
+
+      function createRuntime(scenario) {
+        const runtimeId = nextRuntimeId++;
+        const resources = {
+          activeAudioContexts: 0,
+          generatorContext: null,
+          generatorDestination: null,
+          generatorGain: null,
+          generatorOscillator: null,
+          generatorStream: null
+        };
+        const evidence = {
+          manager: {
+            startCalls: 0,
+            pauseCalls: 0,
+            pauseReasons: [],
+            endCalls: 0
+          },
+          microphone: {
+            underlyingGetUserMediaCalls: 0,
+            recorderStreamMatchesSource: false,
+            usesOscillatorMediaStream: false
+          },
+          ui: {
+            subscribeCalls: 0,
+            unsubscribeCalls: 0,
+            activeSubscriptions: 0
+          }
+        };
+        const listeners = new Set();
+        const pending = { start: null, pause: null, end: null };
+        let raw = rawSnapshot(scenario);
+        let activeSegmentStartedAt = raw.active.meeting.recordingState === 'recording' ? performance.now() : null;
+        let disposed = false;
+
+        function trackContext(context, kind = 'generator') {
+          resources.activeAudioContexts += 1;
+          resourceLedger.createdAudioContexts += 1;
+          resourceLedger.activeAudioContexts += 1;
+          const nativeClose = context.close.bind(context);
+          let closed = false;
+          function markClosed() {
+            if (closed) return;
+            closed = true;
+            resources.activeAudioContexts = Math.max(0, resources.activeAudioContexts - 1);
+            resourceLedger.closedAudioContexts += 1;
+            resourceLedger.activeAudioContexts = Math.max(0, resourceLedger.activeAudioContexts - 1);
+          }
+          context.close = async () => {
+            if (closed) return;
+            const shouldReject = kind === 'meter' && rejectNextMeterClose;
+            if (shouldReject) {
+              rejectNextMeterClose = false;
+              resourceLedger.injectedCloseRejections += 1;
+            }
+            try {
+              if (shouldReject) throw new Error('CONTROLLED_AUDIO_CONTEXT_CLOSE_REJECTION');
+              await nativeClose();
+              markClosed();
+            } catch (error) {
+              const errorRecord = {
+                runtimeId,
+                kind,
+                code: shouldReject ? 'CONTROLLED_AUDIO_CONTEXT_CLOSE_REJECTION' : 'AUDIO_CONTEXT_CLOSE_FAILED',
+                recovered: false
+              };
+              resourceLedger.closeErrors.push(errorRecord);
+              failedCloseRecords.push({ nativeClose, markClosed, errorRecord });
+              throw error;
+            }
+          };
+          return context;
+        }
+
+        function MeterAudioContext(...args) {
+          return trackContext(new NativeAudioContext(...args), 'meter');
+        }
+
+        async function ensureSignal() {
+          if (resources.generatorStream) {
+            await resources.generatorContext.resume();
+            return resources.generatorStream;
+          }
+          const context = trackContext(new NativeAudioContext());
+          const oscillator = context.createOscillator();
+          const gain = context.createGain();
+          const destination = context.createMediaStreamDestination();
+          oscillator.type = 'sine';
+          oscillator.frequency.value = 220;
+          gain.gain.value = 0.18;
+          oscillator.connect(gain);
+          gain.connect(destination);
+          oscillator.start();
+          await context.resume();
+          resources.generatorContext = context;
+          resources.generatorDestination = destination;
+          resources.generatorGain = gain;
+          resources.generatorOscillator = oscillator;
+          resources.generatorStream = destination.stream;
+          for (const track of destination.stream.getTracks()) {
+            resourceLedger.createdTracks += 1;
+            resourceLedger.activeTracks += 1;
+          }
+          evidence.microphone.usesOscillatorMediaStream = true;
+          return destination.stream;
+        }
+
+        const underlyingMediaDevices = {
+          async getUserMedia() {
+            evidence.microphone.underlyingGetUserMediaCalls += 1;
+            return ensureSignal();
+          }
+        };
+        const meter = createMeetingStage3cMicrophoneMeter({
+          mediaDevices: underlyingMediaDevices,
+          AudioContextImpl: MeterAudioContext,
+          sampleIntervalMs: 100,
+          historySize: 8
+        });
+
+        function emit() {
+          for (const listener of listeners) listener(raw);
+        }
+
+        function setRecorderState({ recordingState, interruptionReason = null, recorderStatus, actualStarted, committedDurationMs }) {
+          raw = {
+            ...raw,
+            active: {
+              ...raw.active,
+              meeting: {
+                ...raw.active.meeting,
+                recordingState,
+                interruptionReason,
+                committedDurationMs: Math.max(0, Math.floor(committedDurationMs ?? raw.active.meeting.committedDurationMs))
+              }
+            },
+            recorderStatus,
+            recorderInfo: actualStarted ? { actualStarted: true } : null
+          };
+          emit();
+        }
+
+        function committedNow() {
+          const base = raw.active.meeting.committedDurationMs;
+          return activeSegmentStartedAt === null ? base : base + Math.max(0, performance.now() - activeSegmentStartedAt);
+        }
+
+        const manager = Object.freeze({
+          getSnapshot() {
+            return raw;
+          },
+          subscribe(listener) {
+            listeners.add(listener);
+            return () => listeners.delete(listener);
+          },
+          async startRecording() {
+            evidence.manager.startCalls += 1;
+            if (pending.start) throw new Error('PRIVATE_DUPLICATE_START');
+            pending.start = deferred();
+            setRecorderState({
+              recordingState: 'recording',
+              recorderStatus: 'starting',
+              actualStarted: false,
+              committedDurationMs: raw.active.meeting.committedDurationMs
+            });
+            const recorderStream = await meter.mediaDevices.getUserMedia({ audio: true });
+            evidence.microphone.recorderStreamMatchesSource = recorderStream === resources.generatorStream;
+            await pending.start.promise;
+            pending.start = null;
+            activeSegmentStartedAt = performance.now();
+            setRecorderState({
+              recordingState: 'recording',
+              recorderStatus: 'recording',
+              actualStarted: true,
+              committedDurationMs: raw.active.meeting.committedDurationMs
+            });
+            return { status: 'recording' };
+          },
+          async interruptRecording(reason) {
+            evidence.manager.pauseCalls += 1;
+            evidence.manager.pauseReasons.push(reason);
+            if (pending.pause) throw new Error('PRIVATE_DUPLICATE_PAUSE');
+            pending.pause = deferred();
+            await pending.pause.promise;
+            pending.pause = null;
+            const committedDurationMs = committedNow();
+            activeSegmentStartedAt = null;
+            setRecorderState({
+              recordingState: 'interrupted',
+              interruptionReason: reason,
+              recorderStatus: 'inactive',
+              actualStarted: false,
+              committedDurationMs
+            });
+            return { status: 'interrupted' };
+          },
+          async stopRecording() {
+            evidence.manager.endCalls += 1;
+            if (pending.end) throw new Error('PRIVATE_DUPLICATE_END');
+            pending.end = deferred();
+            await pending.end.promise;
+            pending.end = null;
+            const committedDurationMs = committedNow();
+            activeSegmentStartedAt = null;
+            setRecorderState({
+              recordingState: 'stopped',
+              recorderStatus: 'inactive',
+              actualStarted: false,
+              committedDurationMs
+            });
+            return { status: 'stopped' };
+          }
+        });
+
+        const facade = createMeetingStage3cRecordingExperience({
+          manager,
+          microphoneMeter: meter,
+          tickIntervalMs: 100
+        });
+        const experience = Object.freeze({
+          getSnapshot: () => facade.getSnapshot(),
+          subscribe(listener) {
+            evidence.ui.subscribeCalls += 1;
+            evidence.ui.activeSubscriptions += 1;
+            const unsubscribe = facade.subscribe(listener);
+            let active = true;
+            return () => {
+              if (!active) return;
+              active = false;
+              evidence.ui.unsubscribeCalls += 1;
+              evidence.ui.activeSubscriptions = Math.max(0, evidence.ui.activeSubscriptions - 1);
+              unsubscribe();
+            };
+          },
+          start: () => facade.start(),
+          pause: () => facade.pause(),
+          resume: () => facade.resume(),
+          end: () => facade.end()
+        });
+
+        return {
+          experience,
+          async seedRecordingSignal() {
+            const recorderStream = await meter.mediaDevices.getUserMedia({ audio: true });
+            evidence.microphone.recorderStreamMatchesSource = recorderStream === resources.generatorStream;
+          },
+          completeStart() {
+            if (!pending.start) throw new Error('HARNESS_START_NOT_PENDING');
+            pending.start.resolve();
+          },
+          completePause() {
+            if (!pending.pause) throw new Error('HARNESS_PAUSE_NOT_PENDING');
+            pending.pause.resolve();
+          },
+          completeEnd() {
+            if (!pending.end) throw new Error('HARNESS_END_NOT_PENDING');
+            pending.end.resolve();
+          },
+          failEnd() {
+            if (!pending.end) throw new Error('HARNESS_END_NOT_PENDING');
+            const end = pending.end;
+            pending.end = null;
+            end.reject(new Error('PRIVATE_HARNESS_END_FAILURE'));
+          },
+          setSignalGain(value) {
+            if (!resources.generatorGain || !resources.generatorContext) throw new Error('HARNESS_SIGNAL_NOT_READY');
+            const normalized = Math.min(0.95, Math.max(0, Number(value) || 0));
+            resources.generatorGain.gain.setValueAtTime(normalized, resources.generatorContext.currentTime);
+          },
+          snapshot() {
+            return clone(facade.getSnapshot());
+          },
+          metrics() {
+            const liveTracks = resources.generatorStream
+              ? resources.generatorStream.getTracks().filter((track) => track.readyState === 'live').length
+              : 0;
+            return clone({
+              ...evidence,
+              microphone: {
+                ...evidence.microphone,
+                randomCalls: globalEvidence.randomCalls,
+                signalSource: 'OscillatorNode -> MediaStreamDestination -> exact Recorder stream',
+                finalActiveTracks: liveTracks,
+                finalActiveAudioContexts: resources.activeAudioContexts
+              },
+              resourceLedger,
+              errors: globalEvidence.errors
+            });
+          },
+          async dispose() {
+            if (disposed) return;
+            disposed = true;
+            await facade.dispose();
+            try {
+              resources.generatorOscillator?.stop();
+            } catch {
+              // Test signal may already have stopped.
+            }
+            for (const track of resources.generatorStream?.getTracks?.() || []) {
+              if (track.readyState === 'live') {
+                track.stop();
+                resourceLedger.stoppedTracks += 1;
+                resourceLedger.activeTracks = Math.max(0, resourceLedger.activeTracks - 1);
+              }
+            }
+            await resources.generatorContext?.close?.();
+            const finalActiveTracks = resources.generatorStream
+              ? resources.generatorStream.getTracks().filter((track) => track.readyState === 'live').length
+              : 0;
+            resourceLedger.runtimeDisposals.push({
+              runtimeId,
+              scenario,
+              finalActiveTracks,
+              finalActiveAudioContexts: resources.activeAudioContexts
+            });
+          }
+        };
+      }
+
+      let root = null;
+      let runtime = null;
+      let lastMetrics = null;
+
+      async function disposeRuntime() {
+        root?.unmount();
+        root = null;
+        if (runtime) {
+          await runtime.dispose();
+          lastMetrics = runtime.metrics();
+          runtime = null;
+        }
+        await delay();
+      }
+
+      async function loadScenario(scenario, { mountCount = 1 } = {}) {
+        await disposeRuntime();
+        runtime = createRuntime(scenario);
+        if (scenario === 'recording') await runtime.seedRecordingSignal();
+        root = createRoot(document.getElementById('root'));
+        const children = Array.from({ length: Math.max(1, Number(mountCount) || 1) }, (_, index) => (
+          React.createElement(MeetingRecordingExperience, {
+            experience: runtime.experience,
+            key: `recording-experience-${index}`
+          })
+        ));
+        root.render(
+          React.createElement(
+            StrictMode,
+            null,
+            React.createElement('main', { className: 'acceptance-multi-mount' }, children)
+          )
+        );
+        await delay();
+        await delay();
+      }
+
+      const harness = {
+        ready: false,
+        loadScenario,
+        setTheme(theme) {
+          applyTheme(theme);
+        },
+        completeStart() { runtime.completeStart(); },
+        completePause() { runtime.completePause(); },
+        completeEnd() { runtime.completeEnd(); },
+        failEnd() { runtime.failEnd(); },
+        setSignalGain(value) { runtime.setSignalGain(value); },
+        rejectNextMeterClose() { rejectNextMeterClose = true; },
+        async retryFailedContextCloses() {
+          for (const record of failedCloseRecords.splice(0)) {
+            try {
+              await record.nativeClose();
+              record.markClosed();
+              record.errorRecord.recovered = true;
+              resourceLedger.recoveredCloseErrors += 1;
+            } catch (error) {
+              failedCloseRecords.push(record);
+              throw error;
+            }
+          }
+        },
+        snapshot() { return runtime?.snapshot() || null; },
+        metrics() { return runtime?.metrics() || lastMetrics; },
+        async dispose() {
+          await disposeRuntime();
+          Math.random = originalMathRandom;
+        }
+      };
+      window.__stage3cRecordingHarness = harness;
+      applyTheme('deep-blue');
+      await loadScenario('ready');
+      harness.ready = true;
+    </script>
+  </body>
+</html>

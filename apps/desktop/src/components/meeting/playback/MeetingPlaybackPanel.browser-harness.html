@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="zh-CN" data-theme="classic">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Stage3C Playback Phase4 Browser Harness</title>
+    <style>
+      html, body, #root { min-height: 100%; }
+      body { margin: 0; background: var(--page-background); }
+      #root { padding: 16px; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import '../../../index.css';
+      import { MeetingPlaybackPanel } from './MeetingPlaybackPanel.jsx';
+
+      const state = {
+        audio: null,
+        session: null,
+        root: null,
+        lastSeek: null,
+        seekCalls: 0,
+        errors: []
+      };
+
+      function makeTranscript() {
+        const segments = Array.from({ length: 1200 }, (_, index) => {
+          const startMs = index * 1_250;
+          return {
+            segmentId: `segment-${index}`,
+            transcriptId: 'transcript-playback-harness',
+            transcriptRevision: 1,
+            sequence: index,
+            startMs,
+            endMs: startMs + 1_000,
+            text: `第 ${index + 1} 段连续转写内容，用于验证当前发言跟随。`,
+            speakerRef: index % 2 === 0 ? 'speaker-1' : 'speaker-2'
+          };
+        });
+        return {
+          document: {
+            transcriptId: 'transcript-playback-harness',
+            meetingId: 'meeting-playback-harness',
+            sourceId: 'source-playback-harness',
+            sourceRevision: 1,
+            transcriptRevision: 1,
+            status: 'ready'
+          },
+          currentRevision: {
+            transcriptId: 'transcript-playback-harness',
+            meetingId: 'meeting-playback-harness',
+            sourceId: 'source-playback-harness',
+            sourceRevision: 1,
+            transcriptRevision: 1,
+            segments
+          }
+        };
+      }
+
+      function createAudio() {
+        const audio = new EventTarget();
+        audio.currentTime = 0;
+        audio.paused = true;
+        audio.play = async () => {
+          audio.paused = false;
+          audio.dispatchEvent(new Event('play'));
+        };
+        audio.pause = () => {
+          audio.paused = true;
+          audio.dispatchEvent(new Event('pause'));
+        };
+        return audio;
+      }
+
+      function createPlayback() {
+        const audio = createAudio();
+        const session = {
+          opened: false,
+          async open() { session.opened = true; state.audio = audio; state.session = session; },
+          getAudioElement() { return audio; },
+          async seekTo(targetMs, { autoplay = false } = {}) {
+            state.seekCalls += 1;
+            state.lastSeek = Number(targetMs);
+            audio.currentTime = Number(targetMs) / 1000;
+            audio.dispatchEvent(new Event('timeupdate'));
+            if (autoplay) await audio.play();
+          },
+          async skipBy(deltaMs, { autoplay = false } = {}) {
+            await session.seekTo(Math.max(0, Math.min(1_500_000, audio.currentTime * 1000 + Number(deltaMs))), { autoplay });
+          },
+          async play() { await audio.play(); },
+          async pause() { audio.pause(); },
+          async dispose() { audio.pause(); session.opened = false; },
+          getSnapshot() {
+            return { opened: session.opened, meetingId: 'meeting-playback-harness', sourceId: 'source-playback-harness', revision: 1 };
+          }
+        };
+        return session;
+      }
+
+      const source = {
+        sourceId: 'source-playback-harness',
+        meetingId: 'meeting-playback-harness',
+        origin: 'imported',
+        format: 'm4a',
+        mimeType: 'audio/mp4;codecs=mp4a.40.2',
+        durationMs: 1_500_000,
+        committedDurationMs: 1_500_000,
+        byteLength: 120_000,
+        committedByteLength: 120_000,
+        chunkCount: 10,
+        checksum: 'a'.repeat(64),
+        revision: 1
+      };
+      const transcript = makeTranscript();
+      const speakerCorrectionManager = {
+        async getSpeakerProjection() {
+          return {
+            meetingId: 'meeting-playback-harness',
+            sourceId: 'source-playback-harness',
+            sourceRevision: 1,
+            transcriptId: 'transcript-playback-harness',
+            transcriptRevision: 1,
+            segments: transcript.currentRevision.segments.map((segment) => ({
+              segmentId: segment.segmentId,
+              effectiveSpeaker: {
+                speakerRef: segment.speakerRef,
+                displayLabel: segment.speakerRef === 'speaker-1' ? '主持人' : '记录员'
+              }
+            }))
+          };
+        }
+      };
+
+      function App() {
+        return React.createElement(MeetingPlaybackPanel, {
+          source,
+          transcript,
+          speakerCorrectionManager,
+          playback: { createSession: createPlayback }
+        });
+      }
+
+      state.root = createRoot(document.getElementById('root'));
+      state.root.render(React.createElement(App));
+      window.__stage3cPlaybackHarness = {
+        ready: true,
+        state,
+        setTheme(theme) { document.documentElement.dataset.theme = theme; },
+        setCurrentTime(ms) {
+          if (!state.audio) throw new Error('AUDIO_NOT_READY');
+          state.audio.currentTime = Number(ms) / 1000;
+          state.audio.dispatchEvent(new Event('timeupdate'));
+        },
+        snapshot() {
+          return {
+            lastSeek: state.lastSeek,
+            seekCalls: state.seekCalls,
+            audioTimeMs: Number(state.audio?.currentTime || 0) * 1000,
+            activeRows: document.querySelectorAll('.meeting-playback-panel__segment--active').length,
+            domRows: document.querySelectorAll('.meeting-playback-panel__segment').length,
+            returnButton: Boolean([...document.querySelectorAll('button')].find((item) => item.textContent?.trim() === '回到当前发言')),
+            errors: state.errors
+          };
+        }
+      };
+    </script>
+  </body>
+</html>

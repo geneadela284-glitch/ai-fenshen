@@ -1,0 +1,285 @@
+[
+  {
+    "id": "egg",
+    "name": "鸡蛋",
+    "allergens": [
+      "蛋"
+    ],
+    "fdcId": 171287,
+    "per100g": {
+      "kcal": 143.0,
+      "protein": 12.56,
+      "sodium": 142.0,
+      "fat": 9.51,
+      "carbs": 0.72,
+      "fiber": 0.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/171287/nutrients",
+    "description": "Egg, whole, raw, fresh",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "tomato",
+    "name": "番茄",
+    "allergens": [],
+    "fdcId": 170457,
+    "per100g": {
+      "carbs": 3.89,
+      "kcal": 18.0,
+      "fat": 0.2,
+      "fiber": 1.2,
+      "sodium": 5.0,
+      "protein": 0.88
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/170457/nutrients",
+    "description": "Tomatoes, red, ripe, raw, year round average",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "broccoli",
+    "name": "西兰花",
+    "allergens": [],
+    "fdcId": 170379,
+    "per100g": {
+      "carbs": 6.64,
+      "kcal": 34.0,
+      "fat": 0.37,
+      "protein": 2.82,
+      "fiber": 2.6,
+      "sodium": 33.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/170379/nutrients",
+    "description": "Broccoli, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "oats",
+    "name": "燕麦",
+    "allergens": [
+      "燕麦",
+      "麸质"
+    ],
+    "fdcId": 173904,
+    "per100g": {
+      "fiber": 10.1,
+      "fat": 6.52,
+      "carbs": 67.7,
+      "kcal": 379.0,
+      "sodium": 6.0,
+      "protein": 13.15
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/173904/nutrients",
+    "description": "Cereals, oats, regular and quick, not fortified, dry",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "tofu",
+    "name": "北豆腐",
+    "allergens": [
+      "大豆"
+    ],
+    "fdcId": 172475,
+    "per100g": {
+      "fiber": 2.3,
+      "carbs": 2.78,
+      "kcal": 144.0,
+      "protein": 17.27,
+      "sodium": 14.0,
+      "fat": 8.72
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/172475/nutrients",
+    "description": "Tofu, raw, firm, prepared with calcium sulfate",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "carrot",
+    "name": "胡萝卜",
+    "allergens": [],
+    "fdcId": 170393,
+    "per100g": {
+      "sodium": 69.0,
+      "protein": 0.93,
+      "fat": 0.24,
+      "carbs": 9.58,
+      "kcal": 41.0,
+      "fiber": 2.8
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/170393/nutrients",
+    "description": "Carrots, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "potato",
+    "name": "土豆",
+    "allergens": [],
+    "fdcId": 170026,
+    "per100g": {
+      "fat": 0.09,
+      "kcal": 77.0,
+      "sodium": 6.0,
+      "protein": 2.05,
+      "fiber": 2.1,
+      "carbs": 17.49
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/170026/nutrients",
+    "description": "Potatoes, flesh and skin, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "spinach",
+    "name": "菠菜",
+    "allergens": [],
+    "fdcId": 168462,
+    "per100g": {
+      "protein": 2.86,
+      "sodium": 79.0,
+      "fiber": 2.2,
+      "fat": 0.39,
+      "carbs": 3.63,
+      "kcal": 23.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/168462/nutrients",
+    "description": "Spinach, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "oliveOil",
+    "name": "橄榄油",
+    "allergens": [],
+    "fdcId": 171413,
+    "per100g": {
+      "fat": 100.0,
+      "carbs": 0.0,
+      "kcal": 884.0,
+      "sodium": 2.0,
+      "protein": 0.0,
+      "fiber": 0.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/171413/nutrients",
+    "description": "Oil, olive, salad or cooking",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "banana",
+    "name": "香蕉",
+    "allergens": [],
+    "fdcId": 173944,
+    "per100g": {
+      "carbs": 22.84,
+      "kcal": 89.0,
+      "fiber": 2.6,
+      "sodium": 1.0,
+      "protein": 1.09,
+      "fat": 0.33
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/173944/nutrients",
+    "description": "Bananas, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "apple",
+    "name": "苹果",
+    "allergens": [],
+    "fdcId": 171688,
+    "per100g": {
+      "carbs": 13.81,
+      "kcal": 52.0,
+      "fat": 0.17,
+      "fiber": 2.4,
+      "sodium": 1.0,
+      "protein": 0.26
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/171688/nutrients",
+    "description": "Apples, raw, with skin (Includes foods for USDA's Food Distribution Program)",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "milk",
+    "name": "牛奶",
+    "allergens": [
+      "乳"
+    ],
+    "fdcId": 171267,
+    "per100g": {
+      "protein": 3.3,
+      "fiber": 0.0,
+      "carbs": 4.8,
+      "kcal": 50.0,
+      "fat": 1.98,
+      "sodium": 47.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/171267/nutrients",
+    "description": "Milk, reduced fat, fluid, 2% milkfat, with added vitamin A and vitamin D",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "salmon",
+    "name": "三文鱼",
+    "allergens": [
+      "鱼"
+    ],
+    "fdcId": 175167,
+    "per100g": {
+      "kcal": 208.0,
+      "fat": 13.42,
+      "protein": 20.42,
+      "sodium": 59.0,
+      "fiber": 0.0,
+      "carbs": 0.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/175167/nutrients",
+    "description": "Fish, salmon, Atlantic, farmed, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "zucchini",
+    "name": "西葫芦",
+    "allergens": [],
+    "fdcId": 169291,
+    "per100g": {
+      "fat": 0.32,
+      "carbs": 3.11,
+      "kcal": 17.0,
+      "fiber": 1.0,
+      "sodium": 8.0,
+      "protein": 1.21
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/169291/nutrients",
+    "description": "Squash, summer, zucchini, includes skin, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "chicken",
+    "name": "去皮鸡胸肉",
+    "allergens": [],
+    "fdcId": 171077,
+    "per100g": {
+      "fat": 2.62,
+      "kcal": 120.0,
+      "sodium": 45.0,
+      "protein": 22.5,
+      "carbs": 0.0,
+      "fiber": 0.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/171077/nutrients",
+    "description": "Chicken, broiler or fryers, breast, skinless, boneless, meat only, raw",
+    "basis": "生重，可食部；每100克"
+  },
+  {
+    "id": "rice",
+    "name": "大米",
+    "allergens": [],
+    "fdcId": 169756,
+    "per100g": {
+      "protein": 7.13,
+      "fiber": 1.3,
+      "sodium": 5.0,
+      "fat": 0.66,
+      "carbs": 79.95,
+      "kcal": 365.0
+    },
+    "source": "https://fdc.nal.usda.gov/food-details/169756/nutrients",
+    "description": "Rice, white, long-grain, regular, raw, unenriched",
+    "basis": "生重，可食部；每100克"
+  }
+]

@@ -1,0 +1,41 @@
+{
+  "name": "ai-work-center",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "AI Work Center desktop MVP workspace.",
+  "scripts": {
+    "dev": "npm run dev -w apps/desktop",
+    "build": "npm run build -w apps/desktop",
+    "desktop": "npm run desktop -w apps/desktop",
+    "package:win": "npm run package:win -w apps/desktop",
+    "project:resume": "node scripts/project-state/resume.js",
+    "project:verify": "node scripts/project-state/verify.js",
+    "project:checkpoint": "node scripts/project-state/checkpoint.js",
+    "project:transition-branch": "node scripts/project-state/transitionBranch.js",
+    "release:assemble": "node scripts/release/assembleRelease.mjs",
+    "release:verify-runtime": "node scripts/release/verifyRuntimeAssets.mjs",
+    "test:release-runtime": "node --test scripts/release/*.test.mjs",
+    "test:project-state": "node --test scripts/project-state/projectState.test.js",
+    "model-eval:preflight": "node scripts/model-evaluation/run.mjs --mode preflight",
+    "model-eval:run": "node scripts/model-evaluation/run.mjs",
+    "model-eval:replay": "node scripts/model-evaluation/replay.mjs"
+  },
+  "workspaces": [
+    "apps/desktop"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "exceljs": "4.4.0",
+    "lunar-javascript": "1.7.7",
+    "pdfkit": "0.19.1",
+    "pdfjs-dist": "6.3.289",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "@xmldom/xmldom": "0.9.12",
+    "fake-indexeddb": "6.2.5"
+  }
+}

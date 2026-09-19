@@ -1,0 +1,43 @@
+.DS_Store
+
+# Dependencies and local package stores
+node_modules/
+.pnpm-store/
+
+# Local build output and browser test artifacts
+dist/
+build/
+coverage/
+test-results/
+playwright-report/
+.playwright-cli/
+.playwright-mcp/
+output/playwright/
+sprint*-audit-*.png
+work-secretary-*.png
+
+# Local runtime data and databases
+/data/
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite-journal
+*.sqlite-backup
+memory-export-*
+
+# Local environment and provider secrets
+.env
+.env.*
+!.env.example
+!.env.*.example
+secrets/
+provider-keys*.json
+provider-secrets*.json
+
+# Local logs
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+yarn-debug.log*
+yarn-error.log*

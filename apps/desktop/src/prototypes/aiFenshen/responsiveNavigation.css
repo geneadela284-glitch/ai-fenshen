@@ -1,0 +1,94 @@
+/* Shared presentation rules. Existing navigation callbacks and data remain unchanged. */
+.af-prototype-canvas {
+  contain: layout;
+  --af-system-safe-top: env(safe-area-inset-top, 0px);
+  --af-return-top: calc(10px + env(safe-area-inset-top, 0px));
+  --af-return-left: max(12px, env(safe-area-inset-left, 0px));
+}
+.af-theme .af-prototype-canvas :is(.health-back, .af-diary-back, .meeting-v1-top-action--back, .af-feature-back, .af-placeholder-back, .af-settings-back, .af-finance-back) {
+  position: fixed;
+  top: var(--af-return-top);
+  left: var(--af-return-left);
+  z-index: 30;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  min-height: 44px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid rgba(220, 239, 248, .65);
+  border-radius: 16px;
+  background: rgba(239, 248, 252, .76);
+  color: #25465a;
+  box-shadow: 0 4px 16px rgba(16, 44, 66, .12);
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  touch-action: manipulation;
+}
+.af-theme .af-prototype-canvas :is(.health-back, .af-diary-back, .meeting-v1-top-action--back) { font-size: 26px; line-height: 1; }
+.af-theme .af-prototype-canvas :is(.health-back, .af-diary-back) > span,
+.af-prototype-canvas .meeting-v1-top-action--back .meeting-v1-top-action__label { display: none; }
+.af-prototype-canvas .meeting-v1-top-action--back .meeting-v1-top-action__icon { color: inherit; }
+.af-theme .af-prototype-canvas :is(.af-feature-back, .af-placeholder-back) { font-size: 0; }
+.af-theme .af-prototype-canvas :is(.af-feature-back, .af-placeholder-back)::before { content: '←'; font-size: 24px; }
+.af-theme .af-prototype-canvas :is(.health-shell, .af-diary, .meeting-v1-app-shell, .af-feature-view, .af-settings-scroll, .af-finance-view) {
+  scroll-padding-top: calc(68px + env(safe-area-inset-top, 0px));
+}
+.af-prototype-canvas .health-shell {
+  box-sizing: border-box;
+  padding-top: calc(72px + env(safe-area-inset-top, 0px));
+  padding-left: max(17px, env(safe-area-inset-left, 0px));
+  padding-right: max(17px, env(safe-area-inset-right, 0px));
+}
+/* Only the return control floats; tab content scrolls without covering records. */
+.af-prototype-canvas .health-tabs { position: relative; top: auto; }
+.af-prototype-canvas .af-diary {
+  padding-top: calc(72px + env(safe-area-inset-top, 0px));
+}
+.af-prototype-canvas .af-diary-topbar { gap: 10px; }
+.af-prototype-canvas .meeting-v1-app-shell {
+  padding-top: calc(10px + env(safe-area-inset-top, 0px));
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-bottom: max(24px, env(safe-area-inset-bottom, 0px));
+}
+.af-prototype-canvas .meeting-v1-app-shell .meeting-v1-topbar {
+  background: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  min-height: 44px;
+  padding: 0;
+  margin-bottom: 20px;
+}
+.af-prototype-canvas .meeting-v1-topbar__menu-wrap { grid-column: 3; }
+.af-prototype-canvas .af-wordmark { overflow: visible; flex-shrink: 0; padding-top: 3px; }
+.af-prototype-canvas .af-wordmark-asset { max-width: 100%; object-fit: contain; }
+.af-prototype-canvas .af-wordmark-small .af-wordmark-asset { width: clamp(62px, 17vw, 78px); }
+.af-prototype-canvas .af-wordmark-compact .af-wordmark-asset { width: 46px; }
+.af-prototype-canvas .af-home-header { padding-top: calc(16px + env(safe-area-inset-top, 0px)); }
+.af-prototype-canvas .af-chat-top-controls { padding-top: calc(8px + env(safe-area-inset-top, 0px)); align-items: start; }
+.af-prototype-canvas .af-chat-title > span { margin-top: -7px; }
+.af-prototype-canvas .af-message-list-inner { padding-top: calc(90px + env(safe-area-inset-top, 0px)); }
+.af-prototype-canvas .af-settings-heading .af-wordmark { margin-bottom: 10px; }
+/* Night uses the same layered glass and halo as day, with controlled contrast. */
+[data-af-theme]:not([data-af-theme='day-sky']) .af-brain-function {
+  border-color: rgba(209, 244, 255, .8);
+  background: radial-gradient(circle at 32% 22%, rgba(225, 247, 255, .3), transparent 34%), rgba(12, 65, 125, .58);
+  box-shadow: inset 0 1px 1px rgba(234, 251, 255, .52), 0 0 10px rgba(172, 232, 255, .6), 0 0 22px rgba(41, 161, 255, .72);
+  color: #fff;
+  text-shadow: 0 1px 3px #001d43, 0 0 8px rgba(126, 219, 255, .65);
+}
+[data-af-theme]:not([data-af-theme='day-sky']) .af-brain-function .af-icon { filter: drop-shadow(0 0 4px rgba(164, 232, 255, .85)); }
+@media (prefers-reduced-motion: reduce) {
+  .af-prototype-canvas .af-brain-function { transition: none; }
+}
+@media (orientation: landscape) and (max-height: 500px) {
+  .af-prototype-canvas .af-home-hero-visual { top: max(50%, calc(118px + 13vw + env(safe-area-inset-top, 0px))); }
+  .af-prototype-canvas .af-home-header { padding-top: calc(8px + env(safe-area-inset-top, 0px)); }
+  .af-prototype-canvas .af-wordmark-small .af-wordmark-asset { width: 54px; }
+}
+/* Modal backdrops must continue to intercept all underlying navigation. */
+.af-theme .af-prototype-canvas .af-finance-back { z-index: 3; }

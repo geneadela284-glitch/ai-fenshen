@@ -1,0 +1,365 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>MeetingCenter Speaker Wiring Browser Harness</title>
+    <style>
+      html, body, #root { min-height: 100%; }
+      body { margin: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+
+    <script type="module">
+      import React from 'react';
+      import { createRoot } from 'react-dom/client';
+      import '../index.css';
+
+      const clone = (value) => structuredClone(value);
+      const state = {
+        dataset: [],
+        creationMode: 'immediate',
+        pendingCreation: null,
+        nextManagerId: 1,
+        managers: [],
+        phaseListeners: new Set(),
+        transcriptionListeners: new Set(),
+        diarizationListeners: new Set(),
+        correctionCalls: { projection: [], history: [] },
+        correctionLoadFailuresRemaining: 0,
+        errors: [],
+        compositionInputs: []
+      };
+      let root = null;
+
+      function normalizeEntry(input, index) {
+        return {
+          sourceId: input.sourceId || `source-${index + 1}`,
+          transcriptId: input.transcriptId || `transcript-${index + 1}`,
+          transcriptRevision: Number(input.transcriptRevision || 1),
+          diarizationRevisionId: input.diarizationRevisionId || `diarization-${index + 1}`,
+          diarizationRevision: Number(input.diarizationRevision || 1),
+          transcriptStatus: input.transcriptStatus || 'ready',
+          diarizationStatus: input.diarizationStatus || 'ready',
+          originalFileName: input.originalFileName || `会议音频${index + 1}.wav`,
+          speakerLabel: input.speakerLabel || `说话人${index + 1}`,
+          diarizationMeetingId: input.diarizationMeetingId ?? 'meeting-mounted',
+          diarizationTranscriptId: input.diarizationTranscriptId ?? (input.transcriptId || `transcript-${index + 1}`),
+          diarizationTranscriptRevision: Number(input.diarizationTranscriptRevision ?? input.transcriptRevision ?? 1),
+          emptyDiarizationSegments: input.emptyDiarizationSegments === true
+        };
+      }
+
+      function currentEntry(input) {
+        const entry = state.dataset.find((item) => item.transcriptId === input.transcriptId);
+        if (!entry || input.meetingId !== 'meeting-mounted') throw new Error('HARNESS_BINDING_NOT_FOUND');
+        return entry;
+      }
+
+      function sourceFor(entry) {
+        return {
+          sourceId: entry.sourceId,
+          meetingId: 'meeting-mounted',
+          ownerId: 'mounted-owner',
+          scope: 'meeting',
+          origin: 'imported',
+          originalFileName: entry.originalFileName,
+          mimeType: 'audio/wav',
+          format: 'wav',
+          byteLength: 1024,
+          durationMs: 1_000,
+          checksum: 'a'.repeat(64),
+          chunkCount: 1,
+          manifestVersion: 1,
+          importState: 'committed',
+          createdAt: '2026-08-10T00:00:00.000Z',
+          updatedAt: '2026-08-10T00:00:00.000Z',
+          retentionExpiresAt: '2026-09-09T00:00:00.000Z',
+          revision: 1
+        };
+      }
+
+      function transcriptFor(entry) {
+        const segmentId = `${entry.transcriptId}-segment-${entry.transcriptRevision}`;
+        return {
+          document: {
+            transcriptId: entry.transcriptId,
+            meetingId: 'meeting-mounted',
+            sourceId: entry.sourceId,
+            sourceRevision: 1,
+            ownerId: 'mounted-owner',
+            transcriptRevision: entry.transcriptRevision,
+            status: 'ready'
+          },
+          currentRevision: {
+            transcriptId: entry.transcriptId,
+            meetingId: 'meeting-mounted',
+            sourceId: entry.sourceId,
+            sourceRevision: 1,
+            ownerId: 'mounted-owner',
+            transcriptRevision: entry.transcriptRevision,
+            kind: 'raw_asr',
+            segments: [{
+              segmentId,
+              transcriptId: entry.transcriptId,
+              transcriptRevision: entry.transcriptRevision,
+              sequence: 0,
+              startMs: 0,
+              endMs: 1_000,
+              text: `可见会议内容 ${entry.originalFileName}`,
+              speakerRef: null
+            }]
+          }
+        };
+      }
+
+      function diarizationFor(entry) {
+        const segment = transcriptFor(entry).currentRevision.segments[0];
+        return {
+          transcript: transcriptFor(entry),
+          revision: {
+            diarizationRevisionId: entry.diarizationRevisionId,
+            meetingId: entry.diarizationMeetingId,
+            transcriptId: entry.diarizationTranscriptId,
+            transcriptRevision: entry.diarizationTranscriptRevision,
+            revision: entry.diarizationRevision,
+            speakerRefs: [{ speakerId: 'speaker-1', label: entry.speakerLabel }],
+            segments: entry.emptyDiarizationSegments ? [] : [{
+              transcriptSegmentId: segment.segmentId,
+              startMs: 0,
+              endMs: 1_000,
+              speakerRef: 'speaker-1'
+            }]
+          }
+        };
+      }
+
+      function phaseSnapshot() {
+        return {
+          meetings: [{ meetingId: 'meeting-mounted', title: '挂载验收会议', recordingState: 'ready', createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:00:00.000Z', committedDurationMs: 0, committedSegmentCount: 0 }],
+          active: {
+            meeting: { meetingId: 'meeting-mounted', title: '挂载验收会议', recordingState: 'ready', createdAt: '2026-08-10T00:00:00.000Z', updatedAt: '2026-08-10T00:00:00.000Z', committedDurationMs: 0, committedSegmentCount: 0, revision: 1 },
+            manifest: { committedDurationMs: 0 },
+            segments: [],
+            audioSources: state.dataset.map(sourceFor)
+          },
+          recorderStatus: 'idle',
+          recorderInfo: null,
+          audioImport: { importState: 'idle', progress: { bytesProcessed: 0, totalBytes: 0, percent: 0 }, requiresReselect: false, message: '' },
+          initialized: true
+        };
+      }
+
+      function transcriptionSnapshot() {
+        return {
+          jobs: state.dataset.map((entry) => ({
+            jobId: `transcription-${entry.sourceId}`,
+            meetingId: 'meeting-mounted',
+            sourceId: entry.sourceId,
+            sourceRevision: 1,
+            transcriptId: entry.transcriptId,
+            transcriptRevision: entry.transcriptRevision,
+            status: entry.transcriptStatus,
+            revision: entry.transcriptRevision,
+            chunkCount: 1,
+            nextChunkSequence: entry.transcriptStatus === 'ready' ? 1 : 0
+          })),
+          activeJob: null,
+          transcriptOnlyJobIds: [],
+          provider: { available: false, status: 'blocked' },
+          initialized: true
+        };
+      }
+
+      function diarizationSnapshot() {
+        return {
+          jobs: state.dataset.map((entry) => ({
+            jobId: `diarization-${entry.sourceId}`,
+            meetingId: 'meeting-mounted',
+            sourceId: entry.sourceId,
+            sourceRevision: 1,
+            transcriptId: entry.transcriptId,
+            transcriptRevision: entry.transcriptRevision,
+            status: entry.diarizationStatus,
+            revision: entry.diarizationRevision
+          })),
+          activeJob: null,
+          provider: { available: false, diarizationAvailable: false, status: 'blocked' },
+          initialized: true
+        };
+      }
+
+      function correctionProjection(entry) {
+        const segmentId = transcriptFor(entry).currentRevision.segments[0].segmentId;
+        return {
+          meetingId: 'meeting-mounted',
+          transcriptId: entry.transcriptId,
+          transcriptRevision: entry.transcriptRevision,
+          baseDiarizationRevisionId: entry.diarizationRevisionId,
+          baseDiarizationRevision: entry.diarizationRevision,
+          baseDiarizationSnapshotHash: 'b'.repeat(64),
+          correctionRevisionId: null,
+          correctionRevision: 0,
+          hasCorrections: false,
+          speakerRefs: [{ speakerId: 'speaker-1', displayLabel: entry.speakerLabel, labelSource: 'provider', state: 'active', mergedIntoSpeakerId: null }],
+          segments: [{
+            rawSegment: { segmentId, startMs: 0, endMs: 1_000, text: `可见会议内容 ${entry.originalFileName}` },
+            rawDiarization: { speakerRef: 'speaker-1', confidence: 0.9, source: 'provider_role_separation' },
+            effectiveSpeaker: { speakerRef: 'speaker-1', displayLabel: entry.speakerLabel, labelSource: 'provider', state: 'active' }
+          }]
+        };
+      }
+
+      const speakerCorrection = Object.freeze({
+        async getSpeakerProjection(input) {
+          state.correctionCalls.projection.push(clone(input));
+          if (state.correctionLoadFailuresRemaining > 0) {
+            state.correctionLoadFailuresRemaining -= 1;
+            throw new Error('PRIVATE_HARNESS_LOAD_FAILURE');
+          }
+          return clone(correctionProjection(currentEntry(input)));
+        },
+        async getCorrectionHistory(input) {
+          state.correctionCalls.history.push(clone(input));
+          const entry = currentEntry(input);
+          return {
+            baseRevision: {
+              meetingId: 'meeting-mounted',
+              transcriptId: entry.transcriptId,
+              transcriptRevision: entry.transcriptRevision,
+              baseDiarizationRevisionId: entry.diarizationRevisionId,
+              baseDiarizationRevision: entry.diarizationRevision,
+              baseDiarizationSnapshotHash: 'b'.repeat(64),
+              correctionRevision: 0
+            },
+            currentCorrectionRevision: 0,
+            correctionRevisions: []
+          };
+        },
+        async renameSpeaker() { return { replayed: false }; },
+        async mergeSpeakers() { return { replayed: false }; },
+        async splitSpeaker() { return { replayed: false }; },
+        async reassignSegments() { return { replayed: false }; }
+      });
+
+      function createFakeManager() {
+        const record = { id: state.nextManagerId++, disposeCalls: 0 };
+        state.managers.push(record);
+        return {
+          speakerCorrection,
+          async initialize() { return phaseSnapshot(); },
+          getSnapshot: phaseSnapshot,
+          subscribe(listener) {
+            state.phaseListeners.add(listener);
+            return () => state.phaseListeners.delete(listener);
+          },
+          async startRecording() { return phaseSnapshot(); },
+          async interruptRecording() { return phaseSnapshot(); },
+          async stopRecording() { return phaseSnapshot(); },
+          transcription: {
+            async initialize() { return transcriptionSnapshot(); },
+            getSnapshot: transcriptionSnapshot,
+            subscribe(listener) {
+              state.transcriptionListeners.add(listener);
+              return () => state.transcriptionListeners.delete(listener);
+            },
+            async collectStateEvidence() { return { events: [], nextStateSequence: 1 }; },
+            async recordDiagnostic() { return true; },
+            async getTranscriptView(input) {
+              const entry = currentEntry(input);
+              return { mode: 'normal', transcript: clone(transcriptFor(entry)) };
+            }
+          },
+          diarization: {
+            async initialize() { return diarizationSnapshot(); },
+            getSnapshot: diarizationSnapshot,
+            subscribe(listener) {
+              state.diarizationListeners.add(listener);
+              return () => state.diarizationListeners.delete(listener);
+            },
+            async getDiarizationView(input) { return clone(diarizationFor(currentEntry(input))); }
+          },
+          async dispose() { record.disposeCalls += 1; }
+        };
+      }
+
+      function createBrowserMeetingPhase1Manager(input) {
+        state.compositionInputs.push(clone(input));
+        const manager = createFakeManager();
+        if (state.creationMode !== 'deferred') return Promise.resolve(manager);
+        let resolve;
+        const promise = new Promise((done) => { resolve = done; });
+        state.pendingCreation = { manager, managerId: state.managers.at(-1).id, resolve };
+        return promise;
+      }
+
+      function notifyDataset() {
+        const phase = phaseSnapshot();
+        const transcription = transcriptionSnapshot();
+        const diarization = diarizationSnapshot();
+        for (const listener of state.phaseListeners) listener(phase);
+        for (const listener of state.transcriptionListeners) listener(transcription);
+        for (const listener of state.diarizationListeners) listener(diarization);
+      }
+
+      state.dataset = [
+        normalizeEntry({ sourceId: 'not-ready', transcriptId: 'not-ready-transcript', transcriptStatus: 'transcribing', diarizationStatus: 'ready', originalFileName: '未完成转写.wav' }, 0),
+        normalizeEntry({ sourceId: 'not-diarized', transcriptId: 'not-diarized-transcript', transcriptStatus: 'ready', diarizationStatus: 'diarizing', originalFileName: '未完成说话人识别.wav' }, 1)
+      ];
+      globalThis.__meetingCenterHarness = {
+        createBrowserMeetingPhase1Manager,
+        ready: false
+      };
+
+      const { default: MeetingCenter } = await import('./MeetingCenter.jsx');
+
+      function render() {
+        root.render(React.createElement(MeetingCenter, {
+          currentUser: { id: 'mounted-owner', sessionId: 'mounted-session', username: 'mounted-user' },
+          onNavigate() {}
+        }));
+      }
+
+      root = createRoot(document.querySelector('#root'));
+      render();
+      window.addEventListener('error', (event) => state.errors.push(String(event.error?.message || event.message)));
+      window.addEventListener('unhandledrejection', (event) => state.errors.push(String(event.reason?.message || event.reason)));
+      Object.assign(globalThis.__meetingCenterHarness, {
+        ready: true,
+        setDataset(entries) {
+          state.dataset = entries.map(normalizeEntry);
+          notifyDataset();
+        },
+        setCreationMode(mode) {
+          state.creationMode = mode;
+          state.pendingCreation = null;
+        },
+        setCorrectionLoadFailures(count) {
+          state.correctionLoadFailuresRemaining = Number(count) || 0;
+        },
+        resolvePendingManager() {
+          if (!state.pendingCreation) throw new Error('HARNESS_MANAGER_NOT_PENDING');
+          state.pendingCreation.resolve(state.pendingCreation.manager);
+        },
+        unmount() {
+          root.unmount();
+        },
+        remount() {
+          root = createRoot(document.querySelector('#root'));
+          render();
+        },
+        metrics() {
+          return clone({
+            managers: state.managers,
+            pendingManagerId: state.pendingCreation?.managerId || null,
+            correctionCalls: state.correctionCalls,
+            errors: state.errors,
+            compositionInputs: state.compositionInputs
+          });
+        }
+      });
+    </script>
+  </body>
+</html>
