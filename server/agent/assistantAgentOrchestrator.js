@@ -237,7 +237,17 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
         ? financeService.clock()
         : clock();
       const deterministicContext = trustedSemanticContext(input);
-      const deterministicBatchPlan = financeService?.deterministicCreateBatchPlan?.(input.message, {
+      // Amounts in plans, hypotheticals and explicit prohibitions are not completed
+      // transactions. Let the existing semantic contract interpret these requests.
+      const financeNeedsSemanticUnderstanding = /(?:预算|规划|计划|建议|方案|假如|假设|如果|准备|打算|不(?:要|能|许|会)?(?:买|购买|支付|转账|记账)|别记账)/u.test(input.message);
+      const forbidsLedgerWrite = /(?:不(?:要|能|许|会)?记账|别记账)/u.test(input.message);
+      const financeSubject = '(?:账本|账单|账目|流水|收支|收入|支出|结余|余额|回款|退款|交易|工资)';
+      const explicitLedger = new RegExp('(?:查(?:询|看)?|统计|汇总|核对|对比).{0,12}' + financeSubject, 'u').test(input.message) ||
+        new RegExp('(?:我(?:的)?|今天|昨天|本月|上月|这个月|今年).{0,12}' + financeSubject + '.{0,12}(?:多少|几笔|明细|情况)', 'u').test(input.message) ||
+        /(?:花了|收入|支出|余额).{0,5}(?:多少|几笔)|记(?:一笔)?账|(?:删除|撤销|更正|修改|记下).{0,10}(?:账|上一笔|这笔|交易)/u.test(input.message);
+      const completedTransaction = /(?:花了|付了|支付了|买了|转了|收到了|收到|收入了|支出了)/u.test(input.message) && !/(?:如果|假如|假设|准备|打算|预计)/u.test(input.message);
+      const financialPlanningOnly = financeNeedsSemanticUnderstanding && !explicitLedger && !completedTransaction;
+      const deterministicBatchPlan = !financeNeedsSemanticUnderstanding && financeService?.deterministicCreateBatchPlan?.(input.message, {
         now: deterministicNow,
         ownerId: input.ownerId,
         conversationId: input.conversationId,
@@ -278,7 +288,7 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
         if (executionAccepted(result)) commitCanonicalContext(acceptedBatchPlan, input);
         return result;
       }
-      const deterministicPlan = financeService?.deterministicCreatePlan?.(input.message, {
+      const deterministicPlan = !financeNeedsSemanticUnderstanding && financeService?.deterministicCreatePlan?.(input.message, {
         now: deterministicNow,
         ownerId: input.ownerId,
         conversationId: input.conversationId,
@@ -327,12 +337,19 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
         const now = clock();
         const trustedContext = trustedSemanticContext(input);
         const key = continuationKey(input.ownerId, input.conversationId);
+        // Topic matches are hints, not authority to force the planner into a ledger action.
+        // Only explicit ledger reads/writes or an active finance context pin that domain;
+        // every returned finance plan still goes through the existing deterministic contract.
+        const financeContinuation = /^(?:那|再查|换成|改为|改成|上一笔|这一笔|这笔|继续查|还是|取消|确认)/u.test(input.message);
+        const transactionAmount = /(?:\d|[零一二三四五六七八九十百千万两点])(?:[\d零一二三四五六七八九十百千万两点.,，]*)(?:元|块)/u.test(input.message) &&
+          !/(?:预算|建议|计划|方案|如何|怎样|推荐|假如|假设|如果)/u.test(input.message);
+        const pinnedFinance = !forbidsLedgerWrite && (explicitLedger || transactionAmount || (financeContinuation && Boolean(trustedContext.finance_context)));
         const routeDomain = memoryIntegration?.isMemoryCandidate?.(input.message, {
           ownerId: input.ownerId,
           conversationId: input.conversationId
         })
           ? 'memory'
-          : financeService?.isFinanceCandidate?.(input.message)
+          : pinnedFinance && financeService?.isFinanceCandidate?.(input.message)
             ? 'finance'
             : toolContinuations.has(key)
               ? 'calendar'
@@ -340,6 +357,7 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
         const contextPack = {
           ...buildConversationContextPack({ messages: input.conversationMessages }),
           semantic_context: structuredClone(trustedContext),
+          finance_authority: { planning_only: financialPlanningOnly, ledger_write_forbidden: forbidsLedgerWrite },
           memory_context: trustedContext.memory_context,
           finance_context: trustedContext.finance_context,
           tool_context: trustedContext.tool_context
@@ -362,7 +380,7 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
         if (!interpreted?.ok && isAccessControlErrorCode(interpreted?.code)) {
           throw Object.assign(new Error(interpreted.code), { code: interpreted.code });
         }
-        if (!interpreted?.ok && interpreted?.code === 'NO_USABLE_RUNTIME_CONNECTION') {
+        if (!interpreted?.ok && ['NO_USABLE_RUNTIME_CONNECTION', 'ASSISTANT_SEMANTIC_PLANNER_UNAVAILABLE'].includes(interpreted?.code)) {
           throw Object.assign(new Error(interpreted.code), { code: interpreted.code });
         }
         if (routeDomain === 'finance' &&
@@ -381,6 +399,9 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
             }
           });
           if (!interpreted?.ok && isAccessControlErrorCode(interpreted?.code)) {
+            throw Object.assign(new Error(interpreted.code), { code: interpreted.code });
+          }
+          if (!interpreted?.ok && interpreted?.code === 'ASSISTANT_SEMANTIC_PLANNER_UNAVAILABLE') {
             throw Object.assign(new Error(interpreted.code), { code: interpreted.code });
           }
           if (!interpreted?.ok || interpreted.plan?.domain !== 'finance') {
@@ -407,6 +428,12 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
           };
         }
         if (unifiedPlan.domain === 'memory') {
+          // Device evidence is data for answering only, never authority to run a write.
+          if (input.localMemoryEvidence?.ownerId === input.ownerId && input.localMemoryEvidence?.spaceId === 'personal') {
+            if (unifiedPlan.intent === 'query_fact') return { domain: 'memory', kind: 'local_query', outcome: 'device_evidence_available' };
+            return { domain: 'memory', kind: 'clarification', outcome: 'device_memory_management',
+              content: '请在长期记忆中选择要更正或删除的记录。确认后会使用新内容，原始聊天仍保留。' };
+          }
           const adapted = adaptUnifiedPlanToMemory(unifiedPlan, { message: input.message });
           if (!adapted.ok || !memoryIntegration?.processSemanticPlan) {
             return { domain: 'memory', kind: 'query_error', outcome: 'semantic_adapter_failed', content: '暂时无法读取长期记忆，请稍后再试。' };
@@ -424,7 +451,11 @@ export function createAssistantAgentOrchestrator({ financePlanner = null, financ
           return result;
         }
         if (unifiedPlan.domain === 'finance') {
+          if (financialPlanningOnly) return { domain: 'ordinary_chat', kind: 'none', outcome: 'planning_is_not_a_ledger_action' };
           const adapted = adaptUnifiedPlanToFinance(unifiedPlan, { message: input.message });
+          if (forbidsLedgerWrite && adapted.plan?.action !== 'query') {
+            return financeError('FINANCE_WRITE_NOT_AUTHORIZED', '这条内容未记账，你已要求不要记账。');
+          }
           if (!adapted.ok || !financeService?.processUserMessage) {
             return { domain: 'finance', handled: true, action: 'error', content: '暂时无法读取账本，请稍后再试。' };
           }

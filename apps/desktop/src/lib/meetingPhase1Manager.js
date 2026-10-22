@@ -637,6 +637,28 @@ export function createMeetingPhase1Manager({
     return true;
   }
 
+  async function renameMeeting(meetingId, title, expectedTitle) {
+    const normalizedMeetingId = required(meetingId, 'MEETING_ID_REQUIRED');
+    if (['recording', 'paused'].includes(recorder?.status)
+      || ['importing', 'validating'].includes(importManager.getSnapshot().importState)) throw codedError('MEETING_RENAME_BUSY');
+    let meeting;
+    try {
+      meeting = await store.renameMeeting(context, { meetingId: normalizedMeetingId, title, expectedTitle });
+    } catch (error) {
+      if (error?.code === 'MEETING_RENAME_CONFLICT') {
+        meetings = await store.listMeetings(context);
+        const latest = meetings.find((item) => item.meetingId === normalizedMeetingId);
+        if (latest && active?.meeting?.meetingId === normalizedMeetingId) active = { ...active, meeting: { ...active.meeting, title: latest.title } };
+        notify();
+      }
+      throw error;
+    }
+    meetings = meetings.map((item) => item.meetingId === normalizedMeetingId ? { ...item, title: meeting.title } : item);
+    if (active?.meeting?.meetingId === normalizedMeetingId) active = { ...active, meeting: { ...active.meeting, title: meeting.title } };
+    notify();
+    return meeting;
+  }
+
   async function deleteMeeting(meetingId) {
     const normalizedMeetingId = required(meetingId, 'MEETING_ID_REQUIRED');
     const candidates = [active?.meeting, ...meetings].filter((meeting) => meeting?.meetingId === normalizedMeetingId);
@@ -669,6 +691,7 @@ export function createMeetingPhase1Manager({
     cancelAudioImport,
     deleteAudioSource,
     deleteMeeting,
+    renameMeeting,
     dispose,
     getSnapshot,
     subscribe(listener) {

@@ -299,26 +299,15 @@ export class CoreAiService {
   }
 
   async stream(task = {}, options = {}, invocation = {}) {
-    const {
-      mockOnly: _mockOnly,
-      voiceOrdinaryChat: _voiceOrdinaryChat,
-      ...incomingMetadata
-    } = task.metadata && typeof task.metadata === 'object' ? task.metadata : {};
+    const { mockOnly: _mockOnly, ...incomingMetadata } = task.metadata && typeof task.metadata === 'object' ? task.metadata : {};
     if (invocation.requestLease?.requestId) incomingMetadata.requestId = invocation.requestLease.requestId;
     const requestedTimeout = Number(task.options?.timeoutMs || 30000);
-    const requestedMaxTokens = _voiceOrdinaryChat === true ? Number(task.options?.maxTokens) : NaN;
-    const streamOptions = {
-      timeoutMs: Math.max(1000, Math.min(30000, requestedTimeout))
-    };
-    if (Number.isFinite(requestedMaxTokens) && requestedMaxTokens > 0) {
-      streamOptions.maxTokens = requestedMaxTokens;
-    }
     const result = await this.router.stream({
       input: String(task.input || ''),
       messages: Array.isArray(task.messages) ? task.messages : undefined,
       capability: task.capability,
       metadata: { ...incomingMetadata, memoryPolicy: 'disabled' },
-      options: streamOptions,
+      options: { timeoutMs: Math.max(1000, Math.min(30000, requestedTimeout)) },
       method: 'chat'
     }, options, invocation);
     if (result.error) {

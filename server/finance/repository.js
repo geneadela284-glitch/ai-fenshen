@@ -674,6 +674,51 @@ export class FinanceRepository {
     };
   }
 
+  // One read transaction supplies the page and its supporting aggregates.
+  // It preserves the existing cash-flow policy, including archived entries.
+  readExperienceSnapshot(input = {}, { report = false } = {}) {
+    this.requireF201();
+    const q = normalizeFinanceHistoryQuery(input, { ownerId: input.ownerId, defaultTimezone: this.timezone, defaultNow: this.clock() });
+    if (report && q.statuses.includes('deleted')) fail('FINANCE_HISTORY_DELETED_EXPORT');
+    const clauses = ['owner_id = ?', 'occurred_at >= ?', 'occurred_at < ?', financeHistoryStatusClause(q.statuses)];
+    const values = [q.ownerId, q.range.startAt, q.range.endAt];
+    for (const [field, list] of [['type', q.types], ['category', q.categories]]) {
+      if (list.length) { clauses.push(`${field} IN (${list.map(() => '?').join(',')})`); values.push(...list); }
+    }
+    if (q.keyword) {
+      const escaped = q.keyword.replace(/[\\%_]/g, '\\$&');
+      clauses.push("(merchant LIKE ? ESCAPE '\\' OR note LIKE ? ESCAPE '\\')"); values.push(`%${escaped}%`, `%${escaped}%`);
+    }
+    this.database.exec('BEGIN');
+    try {
+      const page = this.queryHistory(input);
+      const rows = this.database.prepare(`SELECT * FROM finance_entries WHERE ${clauses.join(' AND ')} ORDER BY occurred_at ASC, created_at ASC, id ASC`).all(...values);
+      const active = rows.filter(row => row.status === 'active' && !row.deleted_at);
+      if (active.some(row => row.currency !== 'CNY')) fail('FINANCE_CURRENCY_UNSUPPORTED');
+      const categories = new Map(), days = new Map();
+      const dayFormatter = new Intl.DateTimeFormat('en-CA', {timeZone:q.range.timezone,year:'numeric',month:'2-digit',day:'2-digit'});
+      for (const row of active) {
+        const amount = Number(row.amount_minor), key = `${row.type}:${row.category}`;
+        const category = categories.get(key) || {type:row.type,category:row.category,amountMinor:0,count:0};
+        category.amountMinor += amount; category.count++; categories.set(key,category);
+        const date=dayFormatter.format(new Date(row.occurred_at));
+        const day=days.get(date)||{localDate:date,incomeMinor:0,expenseMinor:0};day[row.type==='income'?'incomeMinor':'expenseMinor']+=amount;days.set(date,day);
+      }
+      const daily=[...days.values()].map(row=>({...row,balanceMinor:row.incomeMinor-row.expenseMinor}));
+      if (![...Object.values(page.summary),...[...categories.values()].map(r=>r.amountMinor),...daily.flatMap(r=>[r.incomeMinor,r.expenseMinor,r.balanceMinor])].every(Number.isSafeInteger)) fail('FINANCE_AMOUNT_OVERFLOW');
+      let snapshot=null;
+      if(report){
+        const local=localParts(new Date(q.range.startAt),q.range.timezone);
+        const start=`${local.year}-${local.month}-${local.day}`, end=localParts(new Date(Date.parse(q.range.endAt)-1),q.range.timezone);
+        const label=`${start} 至 ${end.year}-${end.month}-${end.day}`;
+        const entries=active.map((row,index)=>({...reportEntry(row,index,q.range.timezone),subtype:this.readSubtype(row)}));
+        snapshot=assertMonthlyFinanceReportSnapshot({rangeReport:true,accountingNote:'沿用现金流口径，含借还款；结余不是账户余额。已删除账目不计入。',schemaVersion:1,reportType:'monthly_finance',title:`AI分身-${label}收支报表`,timezone:q.range.timezone,period:{year:Number(local.year),month:Number(local.month),label,startAt:q.range.startAt,endAt:q.range.endAt},currency:'CNY',totals:page.summary,categorySummaries:{income:[...categories.values()].filter(r=>r.type==='income').map(({category,amountMinor})=>({category,amountMinor})),expense:[...categories.values()].filter(r=>r.type==='expense').map(({category,amountMinor})=>({category,amountMinor}))},dailySummaries:daily,entries,entryCount:entries.length,generatedAt:this.clock().toISOString()});
+      }
+      const result={...page,totalCount:rows.length,categories:[...categories.values()].sort((a,b)=>b.amountMinor-a.amountMinor),daily,accounts:this.listAccounts({ownerId:q.ownerId}),snapshot,accountingBasis:'cash_flow_including_loans',timezone:q.range.timezone};
+      this.database.exec('COMMIT');return result;
+    }catch(error){try{this.database.exec('ROLLBACK');}catch{}throw error;}
+  }
+
   exportForOwner(ownerId) {
     return this.database.prepare(`
       SELECT * FROM finance_entries

@@ -96,8 +96,6 @@ test('meeting analysis API uses the authenticated subject and strips client iden
   assert.equal(calls[0].task.ownerId, undefined);
   assert.equal(calls[0].task.meetingId, undefined);
   assert.equal(calls[0].invocation.subject.accountId, 'owner-a');
-  assert.equal(calls[0].invocation.meetingAnalysis, true);
-  assert.equal(calls[0].task.options.timeoutMs, 90000);
   assert.equal(result.access.released.length, 1);
 });
 

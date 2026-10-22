@@ -13,6 +13,7 @@ export default function ImmersiveChatView({
   attachments,
   composerState,
   voiceState,
+  voiceBar,
   voiceError,
   voiceDurationMs,
   voiceLevel,
@@ -74,6 +75,7 @@ export default function ImmersiveChatView({
         <ChatMessageList messages={messages} onRetry={onRetry} onDeleteAttachment={onRemoveAttachment} />
       </m.div>
       <m.div className="af-chat-composer" initial={entering && transitionProgress === null ? hidden : false} animate={childTarget(0.18)} transition={childTransition(0.16)}>
+        {voiceBar}
         <ChatComposer
           draft={draft}
           attachments={attachments}

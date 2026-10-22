@@ -38,6 +38,10 @@ export async function readAudioBody(req, maxBytes = DICTATION_LIMITS.maxBytes) {
 }
 
 function statusForError(code) {
+  if (code === 'ACCOUNT_CONTEXT_MISMATCH' || code === 'ACCOUNT_ACCESS_DISABLED') return 403;
+  if (code === 'ACCESS_CONTROL_UNAVAILABLE') return 503;
+  if (code?.startsWith('ACCOUNT_')) return 429;
+  if (code === 'AUDIO_NO_SPEECH') return 422;
   if (code === 'ASR_BUSY') return 429;
   if (code === 'TIMEOUT') return 504;
   if (code === 'ASR_ENGINE_UNAVAILABLE' || code === 'ASR_MODEL_MISSING') return 503;
@@ -56,7 +60,7 @@ function errorBody({ error, requestId = null, durationMs = null, cleanupStatus =
     transcript: '',
     durationMs,
     latencyMs: Number.isFinite(error?.latencyMs) ? error.latencyMs : 0,
-    providerId: 'local_whisper_cpp',
+    providerId: null,
     cleanupStatus: error?.cleanupStatus || cleanupStatus,
     autoSend: false,
     errorCode: code,
@@ -221,7 +225,7 @@ export async function handleVoiceDictationApi({
   };
   res.once?.('close', onClose);
   try {
-    const result = await runtime.transcribe(request);
+    const result = await runtime.transcribe(request, {subject: session.subject});
     if (!disconnected) {
       responseFinished = true;
       await sendLogged(200, { ok: true, ...result });

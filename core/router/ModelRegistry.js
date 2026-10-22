@@ -2,6 +2,7 @@ import { providerRegistry } from '../providers/providerRegistry.js';
 import { providerManager } from '../providers/providerManager.js';
 import { defaultRoutePolicy, normalizeCapability } from './CapabilityMap.js';
 import { inferModelCapabilities, modelSupportsCapability } from './ModelCapabilities.js';
+import { classifyRouterError } from './RouterErrorClassifier.js';
 
 function candidateModels(provider = {}, route = null) {
   return [
@@ -25,6 +26,12 @@ function hasCredential(provider = {}) {
   return Boolean(provider.apiKey || provider.apiKeyConfigured);
 }
 
+function retryablePolicyHealthFailure(provider = {}) {
+  if (provider.healthy !== false) return false;
+  const errorCode = String(provider.lastErrorCode || provider.lastError || '').trim();
+  return Boolean(errorCode && classifyRouterError({ code: errorCode }).fallbackEligible);
+}
+
 export class ModelRegistry {
   constructor({ providerRegistryStore = null, providers = providerManager } = {}) {
     this.providerRegistryStore = providerRegistryStore;
@@ -38,10 +45,6 @@ export class ModelRegistry {
       capabilities = this.providers.getCapabilities(providerId);
     } catch {
       return false;
-    }
-    if (deliveryMode === 'voice_sse') {
-      return capabilities.supportsStreaming === true ||
-        capabilities.supportsVoiceStreaming === true;
     }
     if (deliveryMode === 'sse') {
       return capabilities.supportsStreaming === true ||
@@ -140,10 +143,13 @@ export class ModelRegistry {
     const approvedCandidates = policy.allowFallback
       ? (policy.candidates || [])
       : (policy.candidates || []).slice(0, 1);
-    return approvedCandidates.flatMap((approved, index) => {
+    const select = ({ allowTransientRecovery = false } = {}) => approvedCandidates.flatMap((approved, index) => {
       const provider = this.getProvider(settings, approved.providerId);
       const registryProvider = registryById?.get(approved.providerId) || null;
-      if (!provider?.enabled || !hasCredential(provider) || provider.healthy !== true) return [];
+      const healthEligible = provider?.healthy === true || (
+        allowTransientRecovery && retryablePolicyHealthFailure(provider)
+      );
+      if (!provider?.enabled || !hasCredential(provider) || !healthEligible) return [];
       if (registryById && registryProvider?.enabled !== true) return [];
       if (catalogIds && !catalogIds.has(`${approved.providerId}:${approved.modelId}`)) return [];
       if (!modelSupportsCapability(approved.providerId, approved.modelId, normalized, provider)) return [];
@@ -161,6 +167,10 @@ export class ModelRegistry {
         estimatedCost: Number(provider.costInput || 0) + Number(provider.costOutput || 0)
       }];
     });
+    const healthyCandidates = select();
+    return healthyCandidates.length > 0
+      ? healthyCandidates
+      : select({ allowTransientRecovery: true });
   }
 }
 

@@ -50,16 +50,17 @@ function addOverview(workbook, snapshot) {
   sheet.columns = [{ width: 22 }, { width: 44 }];
   sheet.addRow(['项目', '内容']);
   sheet.addRows([
-    ['报表月份', snapshot.period.label],
+    [snapshot.rangeReport?'统计范围':'报表月份', snapshot.period.label],
     ['账号时区', snapshot.timezone],
     ['统计开始', snapshot.period.startAt],
     ['统计结束', snapshot.period.endAt],
-    ['本月收入', minorToYuanNumber(snapshot.totals.incomeMinor)],
-    ['本月支出', minorToYuanNumber(snapshot.totals.expenseMinor)],
-    ['本月结余', minorToYuanNumber(snapshot.totals.balanceMinor)],
+    [snapshot.rangeReport?'本期收入':'本月收入', minorToYuanNumber(snapshot.totals.incomeMinor)],
+    [snapshot.rangeReport?'本期支出':'本月支出', minorToYuanNumber(snapshot.totals.expenseMinor)],
+    [snapshot.rangeReport?'本期结余':'本月结余', minorToYuanNumber(snapshot.totals.balanceMinor)],
     ['有效账目数', snapshot.entryCount],
     ['生成时间', snapshot.generatedAt]
   ]);
+  if(snapshot.accountingNote)sheet.addRow(['统计口径',snapshot.accountingNote]);
   styleHeader(sheet);
   [6, 7, 8].forEach((row) => { sheet.getRow(row).getCell(2).numFmt = MONEY_FORMAT; });
   sheet.autoFilter = { from: 'A1', to: 'B10' };
@@ -105,7 +106,7 @@ function addEntries(workbook, snapshot) {
       entry.sequence,
       entry.localDate,
       entry.localTime,
-      entry.type === 'income' ? '收入' : '支出',
+      ({loan_out:'借出',loan_in:'借入',repayment_in:'还入',repayment_out:'还出'}[entry.subtype] || (entry.type === 'income' ? '收入' : '支出')),
       safeText(entry.category),
       safeText(entry.merchantOrCounterparty),
       safeText(entry.note),

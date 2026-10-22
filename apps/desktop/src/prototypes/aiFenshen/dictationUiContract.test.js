@@ -1,9 +1,10 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import test from 'node:test';
 
-const directory = path.dirname(new URL(import.meta.url).pathname);
+const directory = path.dirname(fileURLToPath(new URL(import.meta.url)));
 const source = (file) => readFile(path.join(directory, file), 'utf8');
 
 test('Dictation renders a fixed inline recording bar with recording and processing states', async () => {

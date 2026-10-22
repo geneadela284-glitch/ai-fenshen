@@ -108,7 +108,6 @@ function rethrowAccess(error) {
 }
 
 export class AccessControlService {
-  #voiceLeases = new WeakMap();
   constructor({
     store,
     hmacSecret,
@@ -253,46 +252,8 @@ export class AccessControlService {
     return requestLease;
   }
 
-  beginVoiceStreamRequest({ subject, requestId, voiceSessionId, generation } = {}) {
-    const actor = this.assertAuthenticatedSubject(subject);
-    if (typeof voiceSessionId !== 'string' || !voiceSessionId || voiceSessionId.length > 200 ||
-        !Number.isSafeInteger(generation) || generation < 1) throw codedAccessError('REQUEST_LEASE_INVALID');
-    try {
-      if (this.store.hasVoiceStreamRequest({ accountId: actor.accountId, requestId })) {
-        throw codedAccessError('REQUEST_LEASE_INVALID');
-      }
-      const lease = this.beginRequest({ subject: actor, requestId });
-      this.#voiceLeases.set(lease, { current: lease, voiceSessionId, generation, released: false });
-      return lease;
-    } catch (error) { rethrowAccess(error); }
-  }
-
-  renewVoiceStreamRequest({ subject, requestLease, voiceSessionId, generation } = {}) {
-    const actor = this.assertAuthenticatedSubject(subject);
-    const binding = this.#voiceLeases.get(requestLease);
-    if (!binding || binding.released || binding.current !== requestLease ||
-        requestLease.accountId !== actor.accountId || binding.voiceSessionId !== voiceSessionId ||
-        binding.generation !== generation) throw codedAccessError('REQUEST_LEASE_INVALID');
-    const now = safeDate(this.clock);
-    try {
-      const row = this.store.renewVoiceStreamRequest({
-        accountId: actor.accountId, requestId: requestLease.requestId,
-        expectedExpiresAt: requestLease.leaseExpiresAt, now: now.toISOString(),
-        leaseExpiresAt: new Date(now.getTime() + 120000).toISOString()
-      });
-      const lease = { ...requestLease, leaseExpiresAt: row.lease_expires_at };
-      Object.defineProperty(lease, REQUEST_LEASE, { value: this.brand });
-      Object.freeze(lease);
-      binding.current = lease;
-      this.#voiceLeases.set(lease, binding);
-      return lease;
-    } catch (error) { rethrowAccess(error); }
-  }
-
   releaseRequest(requestLease) {
     if (!requestLease || requestLease[REQUEST_LEASE] !== this.brand) return false;
-    const voiceBinding = this.#voiceLeases.get(requestLease);
-    if (voiceBinding) voiceBinding.released = true;
     try {
       return this.store.releaseRequest({
         accountId: requestLease.accountId,

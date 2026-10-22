@@ -1,6 +1,7 @@
 import { isAllowedCategory } from './constants.js';
 import { getFinanceCapabilities } from './financeCapabilities.js';
 import { buildFinanceQueryPlan } from './queryPlan.js';
+import { handleFinanceExperienceApi } from './experienceApi.js';
 
 function entryBody(entry) {
   return entry ? { ...entry } : null;
@@ -71,6 +72,7 @@ export async function handleFinanceApi({ req, res, url, user, runtime, privacyLi
     sendJson(res, 503, { ok: false, message: '暂时无法读取账本，请稍后再试。' });
     return true;
   }
+  if (await handleFinanceExperienceApi({req,res,url,user,runtime,privacyLifecycle,readJson,sendJson,historyQuery:historyQueryFromUrl(url,runtime)})) return true;
   if (url.pathname === '/api/finance/reports/current-month' && req.method === 'GET') {
     const format = String(url.searchParams.get('format') || '').toLowerCase();
     if (!['pdf', 'xlsx'].includes(format)) {

@@ -90,7 +90,7 @@ test('Router policy domain constrains one Finance replan without changing non-Fi
       }
     },
     financeService: {
-      isFinanceCandidate(message) { return message === 'finance-signal'; },
+      isFinanceCandidate(message) { return message === '查询本月支出'; },
       trustedContext() { return null; }
     },
     memoryIntegration: {
@@ -103,13 +103,13 @@ test('Router policy domain constrains one Finance replan without changing non-Fi
     clientRequestId: `request-${message}`, message, conversationMessages: []
   });
 
-  await ask('finance-signal');
+  await ask('查询本月支出');
   await ask('memory-signal');
   await ask('ordinary-signal');
 
   assert.deepEqual(observed, [
-    ['finance-signal', 'finance', null],
-    ['finance-signal', 'finance', 'finance'],
+    ['查询本月支出', 'finance', null],
+    ['查询本月支出', 'finance', 'finance'],
     ['memory-signal', 'memory', null],
     ['ordinary-signal', 'semantic_planner', null]
   ]);

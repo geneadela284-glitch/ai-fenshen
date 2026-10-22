@@ -51,49 +51,6 @@ test('CoreAiService streams through AIRouter and ProviderManager with server-for
   assert.equal('mockOnly' in received[0].request.metadata, false);
 });
 
-test('ordinary voice response budget reaches the Provider request', async () => {
-  let received;
-  const provider = {
-    id: 'mock-voice-budget', name: 'Mock Voice Budget', type: 'test', status: 'ready',
-    ...noOpProviderMethods(),
-    supportsStreaming: true,
-    async streamChat(request, options) {
-      received = request;
-      await options.onDelta('可以。');
-      return { content: '可以。', usage: null };
-    }
-  };
-  const providers = new ProviderManager({ providers: [provider], defaultProvider: provider.id });
-  const settings = { load: () => ({ providers: { [provider.id]: { apiKey: 'configured' } } }), recordProviderHealth() {} };
-  const registry = {
-    listCandidates: () => [{ providerId: provider.id, modelId: 'mock-model', preferred: true, healthRank: 0, priority: 1 }],
-    getRoutePolicy: () => ({ providerId: provider.id, model: 'mock-model' })
-  };
-  const router = new AIRouter({
-    accessControl: allowingAccessControl,
-    providers, settings, registry,
-    classifier: { classify: () => 'CHAT' },
-    prompts: { build: (task) => ({ ...task, messages: [{ role: 'user', content: task.input }] }) },
-    traces: { record() {} }, responsePolicy: { applyContent: (value) => value }
-  });
-  const service = new CoreAiService({ settings, providers, registry, router });
-  const result = await service.stream({
-    input: '给我一个简单建议',
-    options: { maxTokens: 256 },
-    metadata: { voiceOrdinaryChat: true }
-  }, { onDelta() {} });
-  assert.equal(result.ok, true);
-  assert.equal(received.options.maxTokens, 256);
-  assert.equal(received.metadata.voiceOrdinaryChat, undefined);
-
-  await service.stream({
-    input: '普通文字请求',
-    options: { maxTokens: 512 },
-    metadata: {}
-  }, { onDelta() {} });
-  assert.equal(received.options.maxTokens, undefined);
-});
-
 test('ProviderManager reports streaming capability and rejects unsupported providers', async () => {
   const unsupported = { id: 'plain', name: 'Plain', type: 'test', status: 'ready', ...noOpProviderMethods() };
   const manager = new ProviderManager({ providers: [unsupported], defaultProvider: unsupported.id });

@@ -1,3 +1,4 @@
+import { DICTATION_FAILURE_MESSAGES } from './useDictation.js';
 import DocumentPanel, { DocumentAttachmentMenu } from './DocumentPanel.jsx';
 import { DocumentQaContext } from './useDocumentQa.js';
 import { useContext, useEffect, useRef } from 'react';
@@ -10,14 +11,7 @@ import { calculateComposerHeight } from './prototypeState.js';
 import { VoiceWaveIcon } from './voiceChat/VoiceChatPanel.jsx';
 
 const DICTATION_ACTIVE_STATES = new Set(['requesting_permission', 'recording', 'processing', 'processingVoice']);
-const DICTATION_FAILURE_MESSAGES = Object.freeze({
-  permission_denied: '请允许麦克风权限后重试',
-  recording_failed: '录音没能开始，请重试',
-  audio_invalid: '没有听清，请重试',
-  timeout: '没有听清，请重试',
-  busy: '正在处理上一段语音，请稍候',
-  transcription_failed: '没有听清，请重试'
-});
+
 
 export default function ChatComposer({
   draft,
@@ -45,6 +39,7 @@ export default function ChatComposer({
   const textareaRef = useRef(null);
   const suppressFocusRef = useRef(false);
   const isStreaming = ['streaming', 'stopping'].includes(composerState);
+  const isUploadingImages = composerState === 'sending' && attachments.some(item => item.status === 'uploading');
   const isSending = ['sending', 'streaming', 'stopping'].includes(composerState);
   const canSend = Boolean(draft.trim() || attachments.length || documentQa?.state.document) && !isSending && documentQa?.state.state !== 'parsing';
   const dictationActive = DICTATION_ACTIVE_STATES.has(voiceState);
@@ -188,8 +183,8 @@ export default function ChatComposer({
               onCancel={onVoiceCancel}
               reducedMotion={reducedMotion}
             />
-            {isStreaming ? (
-              <m.button type="button" className="af-send-button is-stop" whileTap={{ scale: 0.88 }} onClick={onStop} disabled={composerState === 'stopping'} aria-label="停止生成"><Icon name="player-stop" size={20} /></m.button>
+            {isStreaming || isUploadingImages ? (
+              <m.button type="button" className="af-send-button is-stop" whileTap={{ scale: 0.88 }} onClick={onStop} disabled={composerState === 'stopping'} aria-label={isUploadingImages ? '取消上传' : '停止生成'}><Icon name="player-stop" size={20} /></m.button>
             ) : (
               <m.button type="button" className="af-send-button" whileTap={canSend || canStartVoiceChat ? { scale: 0.88 } : undefined} onClick={canStartVoiceChat ? onVoiceChat : submitMessage} disabled={!canSend && !canStartVoiceChat} aria-label={canStartVoiceChat ? '开始语音聊天' : '发送消息'}>{canStartVoiceChat ? <VoiceWaveIcon /> : <Icon name="send" size={21} />}</m.button>
             )}

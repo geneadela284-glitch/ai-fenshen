@@ -31,6 +31,7 @@ export function createAttachmentRuntime({
   aiService = null,
   providerExecutor: providerExecutorOverride = null,
   limits: limitsInput,
+  dailyUploadExemptAccountIds = [],
   clock = () => new Date(),
   logger = () => {},
   cleanupIntervalMs = 60 * 1000
@@ -58,6 +59,7 @@ export function createAttachmentRuntime({
     accessControl,
     conversationRuntime,
     limits,
+    dailyUploadExemptAccountIds,
     clock,
     logger
   });

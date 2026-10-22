@@ -42,6 +42,7 @@ import { resolveTrustedClientIp } from './access/trustedClientIp.js';
 import { PrivacyLifecycle } from './privacy/privacyLifecycle.js';
 import { handlePrivacyApi, sendConsentRequired } from './privacy/httpApi.js';
 import { createVoiceDictationRuntime } from './voiceDictation/runtime.js';
+import {createDictationSpeechRuntime, createRoutedDictationTranscriber} from './voiceDictation/cloudSpeech.js';
 import { handleVoiceDictationApi } from './voiceDictation/httpApi.js';
 import { createVoiceChatRuntime } from './voiceChat/runtime.js';
 import { handleVoiceChatApi } from './voiceChat/httpApi.js';
@@ -388,7 +389,7 @@ export async function createBetaServer({ config = defaultConfig, aiService: aiSe
   }
   const learningRuntime = conversationRuntime?.database ? createLearningRuntime({database:conversationRuntime.database,
     encryptionKey:config.learningEncryptionKey || (config.learningKeyFile && existsSync(config.learningKeyFile) ? readFileSync(config.learningKeyFile) : null),
-    aiService,enabled:config.learningEnabled===true}) : null;
+    aiService,enabled:config.learningEnabled===true,realtimeEnabled:config.learningRealtimeEnabled===true}) : null;
   registerInitializationResource('learning',learningRuntime);
   if(learningRuntime) conversationRuntime.service.isLearningConversation=(id,owner)=>learningRuntime.repository.isLearningConversation(id,owner);
   const memoryRuntime = memoryRuntimeOverride || (protectedMemoryRuntime
@@ -415,6 +416,7 @@ export async function createBetaServer({ config = defaultConfig, aiService: aiSe
       conversationRuntime,
       aiService,
       limits: config.attachmentLimits,
+      dailyUploadExemptAccountIds: config.attachmentDailyUploadExemptAccountIds,
       cleanupIntervalMs: config.attachmentCleanupIntervalMs,
       clock: config.attachmentClock,
       logger: config.attachmentLogger
@@ -483,26 +485,13 @@ export async function createBetaServer({ config = defaultConfig, aiService: aiSe
     semanticPlanner: assistantSemanticPlanner, toolRegistry: assistantToolRegistry
   });
   registerInitializationResource('voice_chat', voiceChatRuntime);
-  // Construct outside the request handler so the closure retains only the
-  // original cookie string and owner, never the request/response or body.
-  function voiceAuthorizationValidator(cookie, ownerId) {
-    return async () => {
-      const current = await auth.getCurrentUserFromCookie(cookie);
-      if (!current.user || !current.subject) {
-        throw Object.assign(new Error(current.code || 'UNAUTHENTICATED'), { code: current.code || 'UNAUTHENTICATED' });
-      }
-      if (current.user.id !== ownerId || current.subject.accountId !== ownerId) {
-        throw Object.assign(new Error('VOICE_ACCOUNT_MISMATCH'), { code: 'VOICE_ACCOUNT_MISMATCH' });
-      }
-      if (privacyRequired) privacyLifecycle.requireCurrentConsent(ownerId);
-      return current.subject;
-    };
-  }
   if (!voiceDictationRuntime) {
+    const cloudDictation = config.dictationCloudEnabled === true || process.env.AI_FENSHEN_DICTATION_CLOUD_ENABLED === 'true';
+    if (cloudDictation) aiService.router.dictationRuntime = createDictationSpeechRuntime({aiService});
     voiceDictationRuntime = invokeInternalFactory(
       'voice_dictation',
       runtimeFactories.voiceDictation || createVoiceDictationRuntime,
-      {}
+      cloudDictation ? {transcribeImpl: createRoutedDictationTranscriber({aiService, accessControl}), providerId: 'qwen_asr'} : {}
     );
     registerInitializationResource('voice_dictation', voiceDictationRuntime);
   }
@@ -580,6 +569,7 @@ export async function createBetaServer({ config = defaultConfig, aiService: aiSe
         const result = await auth.login({
           username: body.username,
           password: body.password,
+          rememberSession: req.headers['x-ai-remember-session'] === '1',
           ip: resolveTrustedClientIp(req, config.trustedProxyIps || []),
           userAgent: req.headers['user-agent'] || ''
         });
@@ -634,11 +624,7 @@ export async function createBetaServer({ config = defaultConfig, aiService: aiSe
           voiceChatRuntime.endForOwner?.(session.user.id);
           sendConsentRequired(res, sendJson); return;
         }
-        await handleVoiceChatApi({ req, res, url, session, runtime: voiceChatRuntime, sendJson, readJson,
-          ...(config.voiceCoreOptions?.continuousLifecycle === true ? {
-            validateAuthorization: voiceAuthorizationValidator(req.headers.cookie || '', session.user?.id)
-          } : {})
-        });
+        await handleVoiceChatApi({ req, res, url, session, runtime: voiceChatRuntime, sendJson, readJson });
         return;
       }
 

@@ -8,6 +8,8 @@ export class SpeechText {
  drain(final){const output=[];
   const emit=()=>{const text=this.sentence.replace(/\[([^\]]+)\]\([^)]*\)/g,'$1').replace(/https?:\/\/\S+/g,'').replace(/[*#`_>|]/g,'').trim();this.sentence='';if(!text)return;this.total+=text.length;if(this.total>3000)throw Object.assign(new Error('VOICE_SPEECH_TEXT_LIMIT'),{code:'VOICE_SPEECH_TEXT_LIMIT'});output.push(text);};
   while(this.raw){
+   if(this.raw.startsWith('[记忆:')){const end=this.raw.indexOf(']');if(end<0){if(final)this.raw='';break;}this.raw=this.raw.slice(end+1);continue;}
+   if(!final&&'[记忆:'.startsWith(this.raw))break;
    if(this.hidden){const end=this.raw.indexOf('-->');if(end<0){this.raw=final?'':this.raw.slice(-2);break;}this.raw=this.raw.slice(end+3);this.hidden=false;continue;}
    if(this.raw[0]==='<'){
     if(this.raw.startsWith('<!--')){this.hidden=true;this.raw=this.raw.slice(4);continue;}

@@ -1,5 +1,7 @@
+import { runVoiceReasonedAnswer } from './voiceReasonedAnswer.js';
+import { runVoicePublicSearch } from './voicePublicSearch.js';
 import { createMockEmbedding, createMockImage, createMockText } from '../utils/mockResponse.js';
-import { classifyHttpError, classifyProviderError, ProviderError } from '../utils/providerErrors.js';
+import { classifyHttpError, classifyProviderError } from '../utils/providerErrors.js';
 
 export function createMockProvider({ id, name, type = 'cloud', status = 'mock', region = 'global', reserved = false }) {
   const metadata = { id, name, type, status, region, reserved };
@@ -152,98 +154,52 @@ export function createOpenAICompatibleProvider({ id, name, type = 'cloud', regio
     }
   }
 
-  async function callStreamingChat(request = {}, { signal, onDelta = () => {} } = {}) {
+  async function callVoiceStreamingChat(request = {}, { signal, onDelta = () => {} } = {}) {
     const settings = resolveOpenAICompatibleSettings(request, { baseUrl, model });
     if (!settings.apiKey) throw classifyHttpError(401, 'missing api key', metadata.id);
     if (!settings.baseUrl || !settings.model) throw classifyHttpError(400, 'missing base url or model', metadata.id);
-
-    const controller = new AbortController();
-    let timedOut = false;
-    const forwardAbort = () => controller.abort(signal?.reason || 'caller_aborted');
-    if (signal?.aborted) forwardAbort();
-    else signal?.addEventListener('abort', forwardAbort, { once: true });
-    const timeout = setTimeout(() => {
-      timedOut = true;
-      controller.abort('timeout');
-    }, settings.timeoutMs);
-
+    const controller = new AbortController(); let timedOut = false; let reader = null;
+    const forwardAbort = () => { controller.abort(signal?.reason); void reader?.cancel().catch(() => {}); };
+    if (signal?.aborted) forwardAbort(); else signal?.addEventListener('abort', forwardAbort, { once: true });
+    const timeout = setTimeout(() => { timedOut = true; controller.abort(); }, settings.timeoutMs);
+    const fail = (code, message = code) => Object.assign(new Error(message), { code, provider: metadata.id });
     try {
-      const requestUrl = resolveChatCompletionsUrl(metadata.id, settings.baseUrl);
-      const response = await fetch(requestUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${settings.apiKey}`
-        },
-        body: JSON.stringify({
-          model: settings.model,
-          messages: normalizeMessages(request),
-          temperature: settings.temperature,
-          max_tokens: settings.maxTokens,
-          stream: true
-        }),
-        signal: controller.signal
-      });
-      if (!response.ok) {
-        const body = await response.text().catch(() => '');
-        throw classifyHttpError(response.status, body, metadata.id);
-      }
-      if (!response.body) throw new ProviderError('网络错误', { code: 'NETWORK_ERROR', provider: metadata.id });
-
-      const reader = response.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = '';
-      let content = '';
-      let done = false;
-      const consume = async (block) => {
-        for (const line of block.split(/\r?\n/)) {
-          if (!line.startsWith('data:')) continue;
-          const data = line.slice(5).trim();
-          if (!data) continue;
-          if (data === '[DONE]') {
-            done = true;
-            return;
-          }
-          let payload;
-          try { payload = JSON.parse(data); } catch { continue; }
-          const delta = String(payload?.choices?.[0]?.delta?.content || '');
-          if (!delta) continue;
-          content += delta;
-          await onDelta(delta);
-        }
+      const response = await fetch(resolveChatCompletionsUrl(metadata.id, settings.baseUrl), { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${settings.apiKey}` }, body: JSON.stringify({ model: settings.model, messages: normalizeMessages(request), temperature: settings.temperature, max_tokens: settings.maxTokens, stream: true, stream_options: { include_usage: true } }), signal: controller.signal });
+      if (!response.ok) throw classifyHttpError(response.status, await response.text().catch(() => ''), metadata.id);
+      if (!response.body) throw fail('SSE_BODY_MISSING');
+      reader = response.body.getReader(); if (controller.signal.aborted) throw fail('ABORTED'); const decoder = new TextDecoder(); let buffer = '', content = '', done = false, finished = false, finishReason = null, usage = null;
+      const consume = async block => {
+        const data = block.split(/\r?\n/).filter(line => line.startsWith('data:')).map(line => line.slice(5).trim()).filter(Boolean).join('\n');
+        if (!data) return;
+        if (data === '[DONE]') { done = true; return; }
+        let payload; try { payload = JSON.parse(data); } catch { throw fail('SSE_MALFORMED'); }
+        if (payload?.error) throw fail('SSE_PROVIDER_ERROR');
+        if (payload?.usage) usage = payload.usage;
+        const choice = payload?.choices?.[0];
+        if (choice?.finish_reason) { finishReason = String(choice.finish_reason); if (finishReason === 'stop') finished = true; else throw fail('SSE_INCOMPLETE'); }
+        const delta = choice?.delta?.content;
+        if (delta !== undefined && delta !== null && String(delta)) { const text = String(delta); content += text; await onDelta(text); }
       };
-
       while (!done) {
-        const next = await reader.read();
-        buffer += decoder.decode(next.value || new Uint8Array(), { stream: !next.done });
-        let boundary;
-        while ((boundary = buffer.search(/\r?\n\r?\n/)) !== -1) {
-          const delimiter = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0].length || 2;
-          const block = buffer.slice(0, boundary);
-          buffer = buffer.slice(boundary + delimiter);
-          await consume(block);
-          if (done) break;
-        }
-        if (next.done) {
-          if (buffer.trim()) await consume(buffer);
-          break;
-        }
+        const next = await reader.read(); buffer += decoder.decode(next.value || new Uint8Array(), { stream: !next.done });
+        let boundary; while ((boundary = buffer.search(/\r?\n\r?\n/)) !== -1) { const delimiter = buffer.slice(boundary).match(/^\r?\n\r?\n/)?.[0].length || 2; const block = buffer.slice(0,boundary); buffer = buffer.slice(boundary + delimiter); await consume(block); if (done) break; }
+        if (next.done) { buffer += decoder.decode(); if (buffer.trim()) await consume(buffer); break; }
       }
-      return { provider: metadata.id, mode: 'chat', content, usage: null, mocked: false, createdAt: new Date().toISOString() };
+      if (!done || !finished) throw fail('SSE_INCOMPLETE');
+      if (controller.signal.aborted) throw fail('ABORTED');
+      if (!content.trim()) throw fail('EMPTY_PROVIDER_RESPONSE');
+      return { provider: metadata.id, mode: 'chat', model: settings.model, content, usage, finishReason, mocked: false, createdAt: new Date().toISOString() };
     } catch (error) {
-      if (signal?.aborted && !timedOut) throw new ProviderError('已停止', { code: 'ABORTED', provider: metadata.id, cause: error });
+      if (timedOut) throw fail('TIMEOUT');
+      if (signal?.aborted || controller.signal.aborted) throw fail('ABORTED');
+      if (error?.code?.startsWith('SSE_') || error?.code === 'EMPTY_PROVIDER_RESPONSE') throw error;
       throw classifyProviderError(error, metadata.id);
-    } finally {
-      clearTimeout(timeout);
-      signal?.removeEventListener('abort', forwardAbort);
-    }
+    } finally { clearTimeout(timeout); signal?.removeEventListener('abort', forwardAbort); try { await reader?.cancel(); } catch {} try { reader?.releaseLock(); } catch {} }
   }
 
   return {
     ...metadata,
     supportsChat: true,
-    // Generic text SSE keeps the existing single-shot compatibility bridge.
-    // Only the explicitly opted-in voice path gets native Provider streaming.
     supportsStreaming: false,
     supportsVoiceStreaming: nativeVoiceStreaming,
     supportsSingleShotSseBridge: true,
@@ -256,11 +212,8 @@ export function createOpenAICompatibleProvider({ id, name, type = 'cloud', regio
       return callChatCompletions(request);
     },
 
-    ...(nativeVoiceStreaming ? {
-      async streamVoiceChat(request = {}, options = {}) {
-        return callStreamingChat(request, options);
-      }
-    } : {}),
+    ...(nativeVoiceStreaming ? { async streamVoiceChat(request = {}, options = {}) { return callVoiceStreamingChat(request, options); } } : {}),
+    ...(id === 'qwen' ? { async answerWithTools(request = {}, options = {}) { return runVoiceReasonedAnswer(request, resolveOpenAICompatibleSettings(request, { baseUrl, model }), options); }, async searchPublicInformation(request = {}, options = {}) { return runVoicePublicSearch(request, resolveOpenAICompatibleSettings(request, { baseUrl, model }), options); } } : {}),
 
     async image() {
       throw classifyHttpError(400, 'vision adapter not implemented', metadata.id);

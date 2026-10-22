@@ -115,6 +115,10 @@ export class AIRouter {
   }
 
   run(task = {}, invocation = {}) {
+    if (task.capability === 'DICTATION_ASR') {
+      if (!this.dictationRuntime) return Promise.reject(Object.assign(new Error('ASR_ENGINE_UNAVAILABLE'), {code: 'ASR_ENGINE_UNAVAILABLE'}));
+      return this.dictationRuntime.run(task, invocation);
+    }
     if (task.capability === 'VOICE_CHAT_ASR' || task.capability === 'VOICE_CHAT_TTS') {
       if (!this.voiceChatRuntime) return Promise.reject(Object.assign(new Error('VOICE_UNAVAILABLE'), { code: 'VOICE_UNAVAILABLE' }));
       return this.voiceChatRuntime.run(task, invocation);
@@ -393,7 +397,7 @@ export class AIRouter {
 
   policyState(task = {}, capability = '') {
     const runtimeContext = createAIRequestRuntimeContext(task, { capability });
-    const policy = resolveRouterPolicy(task.metadata?.routeDomain);
+    const policy = resolveRouterPolicy(task.metadata?.routeDomain, task.metadata);
     const execution = createRouterExecutionContext({
       requestId: runtimeContext.requestId,
       executionId: task.metadata?.executionId,
@@ -581,9 +585,8 @@ export class AIRouter {
     const settings = this.settings.load();
     const capability = normalizeCapability(this.classifier.classify(task));
     const { runtimeContext, policy, execution } = this.policyState(task, capability);
-    const deliveryMode = task.metadata?.voiceRealtimeOnly === true ? 'voice_sse' : 'sse';
     const candidates = this.registry.listPolicyCandidates(settings, policy, capability, {
-      deliveryMode
+      deliveryMode: 'sse'
     }).slice(0, policy.maxAttempts);
     const overallStarted = clockMs();
     const routeTrace = [];

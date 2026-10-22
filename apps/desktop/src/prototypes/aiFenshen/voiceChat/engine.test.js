@@ -114,3 +114,11 @@ test('late mute completion cannot send a mute command into a reopened session',a
  engine.sessionId='old';engine.inputEpoch=0;const oldMute=engine.mute();engine.end();engine.sessionId='new';engine.inputEpoch=0;engine.update({phase:'listening',muted:false});
  finishMute();await oldMute;assert.equal(calls.some(c=>c.url.includes('/new/')&&c.body.type==='mute'),false);assert.equal(engine.inputEpoch,0);assert.equal(engine.state.muted,false);engine.sessionId=null;engine.end();
 });
+
+test('pause exposes only a normalized code and elapsed session time for one-time diagnosis', () => {
+ const engine=new VoiceChatEngine({ownerId:'a',mediaDevices:{},clock:()=>2450});
+ engine.sessionStartedAt=1000;
+ engine.pause('VOICE_LEASE_EXPIRED');
+ assert.deepEqual(engine.state.diagnostic,{code:'VOICE_LEASE_EXPIRED',relativeMs:1450});
+ assert.deepEqual(Object.keys(engine.state.diagnostic).sort(),['code','relativeMs']);
+});

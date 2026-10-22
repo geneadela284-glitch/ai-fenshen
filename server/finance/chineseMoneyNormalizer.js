@@ -89,6 +89,14 @@ export function normalizeChineseMoney(raw) {
     return { status: 'resolved', raw: source, amount: amountMinor / 100, amountMinor, currency: 'CNY' };
   }
 
+  const chineseDecimal = value.match(/^([零〇一二两三四五六七八九十百千万亿]+)点([零〇一二两三四五六七八九]{1,2})$/u);
+  if (chineseDecimal) {
+    const integer = parseChineseInteger(chineseDecimal[1]);
+    const cents = chineseDecimal[2].split('').map(char => DIGITS[char]).join('').padEnd(2, '0');
+    const amountMinor = integer.amount * 100 + Number(cents);
+    if (integer.status === 'resolved' && Number.isSafeInteger(amountMinor)) return {status:'resolved',raw:source,amount:amountMinor/100,amountMinor,currency:'CNY'};
+  }
+
   if (!CHINESE_NUMBER.test(value)) {
     return { status: 'invalid', raw: source, amount: null, amountMinor: null, currency: 'CNY' };
   }

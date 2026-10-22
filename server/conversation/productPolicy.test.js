@@ -35,9 +35,7 @@ test('AI分身 capability whitelist distinguishes available and planned features
   const prompt = subject.buildAIFenshenMessages([{ role: 'user', content: '你能为我做什么？' }])[0].content;
   assert.match(prompt, /经用户授权的长期记忆/);
   assert.match(prompt, /确定性个人记账与收支查询/);
-  for (const planned of ['文件上传', '图片识别', '语音识别', '真实人脸识别', '日程自动执行', '健康管理', '完整对话历史界面', '正式设置中心']) {
-    assert.match(prompt, new RegExp(planned));
-  }
+  assert.match(prompt, /日程自动执行/);
   assert.match(prompt, /最多5项/);
   assert.match(prompt, /150.*250/);
   assert.match(prompt, /不得声称.*完全免费/);
@@ -86,9 +84,18 @@ test('ConversationService injects the trusted product system prompt server-side'
 test('both chat channels send the authorized creator facts to the model for open-ended questions',async()=>{
  const {buildAIFenshenMessages}=await policy();
  const messages=buildAIFenshenMessages([{role:'user',content:'聊聊你的诞生过程吧。'}]);
- assert.match(messages[0].content,/我是由示例维护者创建的。/);
- assert.match(messages[0].content,/示例维护者，身份信息已脱敏。/);
+ assert.match(messages[0].content,/我是我亲爱的华哥创造出来的。/);
+ assert.match(messages[0].content,/华哥，本名梁钊华，广东省南雄市人，属羊。/);
  assert.match(messages[0].content,/本产品.*创造者/);
  assert.match(messages[0].content,/不得编造.*团队|不得.*编造.*开发经历/);
  assert.equal(messages[1].content,'聊聊你的诞生过程吧。');
+});
+
+test('能力说明根据当前链路启用状态描述附件和本机记忆，不把已接入能力说成待开发',async()=>{
+ const {buildAIFenshenMessages}=await policy();
+ const enabled=buildAIFenshenMessages([],{capabilities:{localMemory:true,images:true,documents:true}})[0].content;
+ assert.match(enabled,/当前可用.*本机长期记忆/);assert.match(enabled,/当前可用.*图片/);assert.match(enabled,/当前可用.*文件/);
+ const unknown=buildAIFenshenMessages([])[0].content;
+ assert.doesNotMatch(unknown,/尚未正式开放：.*文件上传/);
+ assert.match(unknown,/以本次.*状态|以当前.*状态/);
 });

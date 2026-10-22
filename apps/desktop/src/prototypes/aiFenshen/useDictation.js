@@ -7,9 +7,12 @@ export const DICTATION_FAILURE_MESSAGES = Object.freeze({
   permission_denied: '请允许麦克风权限后重试。',
   recording_failed: '录音启动失败，请重试。',
   audio_invalid: '没有听清，请重试。',
-  timeout: '没有听清，请重试。',
+  timeout: '语音识别超时，请稍后重试。',
+  service_unavailable: '语音识别服务暂时不可用，请稍后重试。',
+  account_unavailable: '当前账号暂时无法使用语音识别，请检查登录和使用额度。',
+  no_speech: '没有听到有效语音，请靠近麦克风重试。',
   busy: '正在处理上一条消息，请稍候。',
-  transcription_failed: '没有听清，请重试。',
+  transcription_failed: '这次语音识别未完成，请重试。',
   cancelled: '已取消语音转写。'
 });
 
@@ -23,6 +26,9 @@ function failureState(error) {
   const code = String(error?.code || '').toUpperCase();
   if (code === 'PERMISSION_DENIED' || code === 'MICROPHONE_UNAVAILABLE' || code === 'NOTALLOWEDERROR') return 'permission_denied';
   if (code === 'AUDIO_EMPTY' || code === 'AUDIO_INVALID' || code === 'AUDIO_TOO_LARGE' || code === 'AUDIO_TOO_LONG' || code === 'AUDIO_HASH_MISMATCH') return 'audio_invalid';
+  if (['ASR_ENGINE_UNAVAILABLE', 'ASR_MODEL_MISSING', 'ACCESS_CONTROL_UNAVAILABLE'].includes(code)) return 'service_unavailable';
+  if (code === 'AUTH_REQUIRED' || code.startsWith('ACCOUNT_')) return 'account_unavailable';
+  if (code === 'AUDIO_NO_SPEECH') return 'no_speech';
   if (code === 'ASR_BUSY') return 'busy';
   if (code === 'TIMEOUT' || code === 'TRANSCRIPTION_TIMEOUT') return 'timeout';
   if (code === 'CANCELLED' || code === 'ABORT_ERR') return 'cancelled';
@@ -35,6 +41,7 @@ export function useDictation({
   onDraftChange = () => {},
   busy = false,
   showToast = () => {},
+  onSettled = () => {},
   clientFactory = createDictationClient,
   recorderFactory = createDictationRecorder,
   idFactory = defaultRequestId
@@ -44,6 +51,7 @@ export function useDictation({
   const [voiceDurationMs, setVoiceDurationMs] = useState(0);
   const [voiceLevel, setVoiceLevel] = useState(0);
   const stateRef = useRef('idle');
+  const settledRef = useRef(onSettled); settledRef.current = onSettled;
   const draftRef = useRef(draft);
   const onDraftChangeRef = useRef(onDraftChange);
   const clientRef = useRef(null);
@@ -57,7 +65,9 @@ export function useDictation({
   if (!clientRef.current) clientRef.current = clientFactory();
 
   const setState = useCallback((next) => {
+    const wasActive = ACTIVE_STATES.has(stateRef.current);
     stateRef.current = next;
+    if (wasActive && !ACTIVE_STATES.has(next)) settledRef.current();
     if (mountedRef.current) setVoiceState(next);
   }, []);
 
@@ -159,13 +169,13 @@ export function useDictation({
     return start();
   }, [cancel, start]);
 
-  useEffect(() => () => {
+  useEffect(() => { mountedRef.current = true; return () => {
     mountedRef.current = false;
     clearTransientTimer();
     requestRef.current?.controller.abort();
     if (requestRef.current) requestRef.current.cancelled = true;
     recorderRef.current?.cancel?.();
-  }, [clearTransientTimer]);
+  }; }, [clearTransientTimer]);
 
   return Object.freeze({
     voiceState,

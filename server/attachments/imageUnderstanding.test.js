@@ -565,3 +565,17 @@ test('RED: three images use exactly three OCR calls plus one combined Vision cal
     h.close();
   }
 });
+
+test('同一对话后续提问再次发送真实图片，复用OCR且保留原消息绑定',async()=>{
+ const seen=[];const h=await harness({vision:async input=>{seen.push(input);return{sceneSummary:'两个物体',questionAnswer:'右边是蓝色方形。',limitations:[]}}});
+ try{
+  const id='att_11111111-1111-4111-8111-111111111111';h.seed({attachmentId:id});
+  await h.service.processAttachmentsForMessage({authenticatedUserId:'user-a',conversationId:'conv-a',messageId:'msg-a',attachmentIds:[id],userQuestion:'图里有什么',clientRequestId:'first'});
+  const result=await h.service.processAttachmentsForMessage({authenticatedUserId:'user-a',conversationId:'conv-a',messageId:'msg-a',attachmentIds:[id],userQuestion:'图里的第二个是什么',clientRequestId:'follow',followup:true,conversationContext:'用户目标：了解这个设备'});
+  assert.equal(result.status,'processed');assert.equal(seen.length,2);assert.deepEqual(seen[1].buffers[0],PNG);assert.match(seen[1].conversationContext,/了解这个设备/);
+  assert.equal(h.providerCalls.filter(c=>c.type==='ocr').length,1);assert.equal(h.repository.getAny(id).messageId,'msg-a');
+  await assert.rejects(h.service.processAttachmentsForMessage({authenticatedUserId:'user-b',conversationId:'conv-b',messageId:'msg-b',attachmentIds:[id],userQuestion:'这张图是什么',clientRequestId:'cross',followup:true}),{code:'ATTACHMENT_FORBIDDEN'});
+  h.repository.setProcessingState(id,'expired');
+  await assert.rejects(h.service.processAttachmentsForMessage({authenticatedUserId:'user-a',conversationId:'conv-a',messageId:'msg-a',attachmentIds:[id],userQuestion:'图里是什么',clientRequestId:'expired',followup:true}),{code:'ATTACHMENT_EXPIRED'});
+ }finally{h.close();}
+});

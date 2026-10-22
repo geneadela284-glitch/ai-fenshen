@@ -28,6 +28,35 @@ async function createService({ clock = () => new Date() } = {}) {
   return { service, accessControl, accessStore, dir };
 }
 
+test('remembered app session survives time and restart but logout, reset and disable still revoke it', async () => {
+  let now = Date.parse('2026-10-03T10:00:00Z');
+  const f = await createService({clock:()=>new Date(now)});
+  let service = f.service;
+  try {
+    const credentials={username:'remembered',password:'RememberFixture1!',rememberSession:true};
+    await service.createAccount({...credentials,displayName:'隔离登录测试',role:'beta_user',quotaProfileId:'closed_beta_user_v1'});
+    const remembered=await service.login(credentials);
+    const ordinary=await service.login({...credentials,rememberSession:false});
+    assert.equal(remembered.ok,true);
+    assert.doesNotMatch(remembered.setCookie,/Max-Age=/);
+    assert.match(ordinary.setCookie,/Max-Age=604800/);
+    service.close();
+    now += 1000*60*60*24*365*3;
+    service=new BetaAuthService({dbPath:path.join(f.dir,'auth.sqlite'),cookieSecret:'test-cookie-secret-minimum-32-bytes',accessControl:f.accessControl,clock:()=>new Date(now)});
+    await service.initialize();
+    assert.equal((await service.getCurrentUserFromCookie(remembered.setCookie)).user.username,'remembered');
+    assert.equal((await service.getCurrentUserFromCookie(ordinary.setCookie)).user,null);
+    await service.logoutFromCookie(remembered.setCookie);
+    assert.equal((await service.getCurrentUserFromCookie(remembered.setCookie)).user,null);
+    const beforeReset=await service.login(credentials);
+    await service.resetPassword(credentials.username,'NewRememberFixture2!');
+    assert.equal((await service.getCurrentUserFromCookie(beforeReset.setCookie)).user,null);
+    const beforeDisable=await service.login({...credentials,password:'NewRememberFixture2!'});
+    await service.disableAccount(credentials.username);
+    assert.equal((await service.getCurrentUserFromCookie(beforeDisable.setCookie)).user,null);
+  } finally {service.close();f.accessStore.close();await rm(f.dir,{recursive:true,force:true});}
+});
+
 test('creates beta accounts with hashed passwords and manages sessions', async () => {
   const { service, accessStore, dir } = await createService();
   try {

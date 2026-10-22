@@ -32,6 +32,7 @@ export default function RealSettingsView({
   onLogout,
   onAccountDeleted,
   onOpenFeatureIntro,
+  onOpenMemory,
   themePreference = 'auto',
   onThemePreferenceChange
 }) {
@@ -126,7 +127,7 @@ export default function RealSettingsView({
   const exportMyData = async () => {
     if (privacyAction) return;
     setPrivacyAction('export');
-    setNotice('正在准备完整数据导出…');
+    setNotice('正在准备在线数据导出…');
     try {
       const result = await createMyDataExport();
       startAuthenticatedDownload(result.downloadUrl);
@@ -218,8 +219,8 @@ export default function RealSettingsView({
         ) : null}
 
         <SettingsSection title="长期记忆" testId="settings-memory-status">
-          <div className="af-settings-account-row"><strong>长期记忆：已启用</strong><span className="af-settings-state">安全运行</span></div>
-          <p className="af-settings-muted">AI分身会在安全规则允许时，保存对你长期有用的信息。</p>
+          <p className="af-settings-muted">查看您明确授权保存的内容，或纠正、删除已有记忆。保存结果以本机回执为准。</p>
+          <button type="button" className="af-settings-secondary-action" onClick={onOpenMemory}>查看与管理记忆</button>
         </SettingsSection>
 
         <SettingsSection title="首页主题" testId="settings-theme">
@@ -245,7 +246,7 @@ export default function RealSettingsView({
         </SettingsSection>
 
         <SettingsSection title="隐私与数据" testId="settings-privacy-data">
-          <p className="af-settings-muted">你可以导出自己的完整数据，或永久删除账号及在线个人数据。</p>
+          <p className="af-settings-muted">你可以导出在线保存的数据，或删除账号及在线个人数据。本机长期记忆暂不包含在此导出和删除范围内，请在上方记忆管理中查看、纠正或删除。</p>
           <button
             type="button"
             className="af-settings-secondary-action"

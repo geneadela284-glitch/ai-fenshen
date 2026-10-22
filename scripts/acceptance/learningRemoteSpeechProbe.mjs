@@ -1,0 +1,20 @@
+import {build}from'../../node_modules/.pnpm/esbuild@0.25.0/node_modules/esbuild/lib/main.js';
+import{remoteSource}from'./learningRemoteModel.mjs';import{spawn}from'node:child_process';import{writeFileSync}from'node:fs';
+const bundle=await build({entryPoints:['server/learning/qwenSpeech.js'],bundle:true,platform:'node',format:'esm',write:false,minify:false});
+writeFileSync('/private/tmp/ai-learning-evidence-20260910/speech-adapter-test-bundle.mjs',bundle.outputFiles[0].text);
+let source=remoteSource.replace("const task=JSON.parse(Buffer.concat(chunks).toString());","const packet=JSON.parse(Buffer.concat(chunks).toString());const task=packet.task;")
+ .replace('size>65536','size>256000')
+ .replace("if(task.capability!=='CHAT'||task.metadata?.purpose!=='learning_roleplay')", "if(task.capability!=='TEXT_TO_SPEECH'||task.input!=='Hello. A small coffee, please.')");
+const before="try{const result=await ai.run({...task,metadata:{...task.metadata,userId:accountId}}, {subject,requestLease});console.log('LEARNING_RESULT:'+JSON.stringify({ok:result.ok,content:result.content,code:result.code,latency:result.latency,usage:result.usage}));}";
+const after=`const {createQwenLearningSpeech}=await import('data:text/javascript;base64,'+packet.module);
+ const speech=createQwenLearningSpeech({aiService:ai});const ordinaryRun=ai.router.run.bind(ai.router);ai.router.run=(t,i)=>['TEXT_TO_SPEECH','SPEECH_TO_TEXT'].includes(t.capability)?speech.run(t,i):ordinaryRun(t,i);
+ try{const start=Date.now();const voice=await ai.router.run(task,{ownerId:accountId,subject,requestLease});const synthesisMs=Date.now()-start;
+ accessControl.releaseRequest(requestLease);const asrLease=accessControl.beginRequest({subject,requestId:randomUUID()});
+ try{const second=Date.now();const text=await ai.router.run({capability:'SPEECH_TO_TEXT',input:voice.audio,language:'en'},{ownerId:accountId,subject,requestLease:asrLease});console.log('LEARNING_RESULT:'+JSON.stringify({ok:true,audioBase64:voice.audio.toString('base64'),transcript:text.transcript,synthesisMs,recognitionMs:Date.now()-second}));}finally{accessControl.releaseRequest(asrLease);}}
+`;
+if(!source.includes(before))throw Error('REMOTE_TEMPLATE_MISMATCH');source=source.replace(before,after);
+const quote=value=>"'"+value.replaceAll("'","'\"'\"'")+"'";
+const moduleText=bundle.outputFiles[0].text.replace('function normalizeSpeechWav(bytes) {',"function normalizeSpeechWav(bytes) { console.log('SPEECH_HEADER:'+JSON.stringify({bytes:bytes.length,header:bytes.subarray(0,96).toString('hex')}));");
+const payload={task:{capability:'TEXT_TO_SPEECH',input:'Hello. A small coffee, please.',language:'en'},module:Buffer.from(moduleText).toString('base64')};
+const result=await new Promise((resolve,reject)=>{const child=spawn('ssh',['-i','/Users/jacky/.ssh/id_ed25519','-o','UserKnownHostsFile=/Users/jacky/Desktop/known_hosts-old-mac','-o','StrictHostKeyChecking=yes','-o','BatchMode=yes','root@45.78.76.88',`node --input-type=module -e ${quote(source)}`],{stdio:['pipe','pipe','pipe']});let output='';const timer=setTimeout(()=>child.kill('SIGTERM'),65000);child.stdout.on('data',c=>{output+=c;if(output.length>2*1024*1024)child.kill('SIGTERM');});child.stderr.resume();child.on('error',()=>reject(Error('REMOTE_SPEECH_UNAVAILABLE')));child.on('close',()=>{clearTimeout(timer);try{writeFileSync('/private/tmp/ai-learning-evidence-20260910/qwen-audio-header.txt',output.split('\n').filter(x=>x.startsWith('SPEECH_HEADER:')).join('\n'));resolve(JSON.parse(output.split('\n').findLast(x=>x.startsWith('LEARNING_RESULT:')).slice(16)));}catch{reject(Error('REMOTE_SPEECH_NO_RESULT'));}});child.stdin.end(JSON.stringify(payload));});
+const {audioBase64,...report}=result;if(audioBase64)writeFileSync('/private/tmp/ai-learning-evidence-20260910/qwen-real-speech.wav',Buffer.from(audioBase64,'base64'));writeFileSync('/private/tmp/ai-learning-evidence-20260910/qwen-speech-probe.json',JSON.stringify({...report,source:'real provider with synthetic speech; all new code ran in remote memory; no server files changed'},null,2));console.log(report);if(!result.ok)process.exitCode=1;

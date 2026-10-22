@@ -8,9 +8,27 @@ function sessionFromPayload(payload = {}) {
   };
 }
 
+function sessionUnavailableError() {
+  const error = new Error('账号状态暂时无法确认，请重试。');
+  error.code = 'AUTH_SESSION_UNAVAILABLE';
+  return error;
+}
+
+function nativeSessionClearError() {
+  const error = new Error('本机登录状态暂时无法清理，请稍后重试。');
+  error.code = 'MOBILE_SESSION_CLEAR_FAILED';
+  return error;
+}
+
 export async function fetchCurrentSession() {
-  const response = await fetch('/api/auth/me', { credentials: 'include' });
-  if (!response.ok) return sessionFromPayload();
+  let response;
+  try {
+    response = await fetch('/api/auth/me', { credentials: 'include' });
+  } catch {
+    throw sessionUnavailableError();
+  }
+  if (response.status === 401) return sessionFromPayload();
+  if (!response.ok) throw sessionUnavailableError();
   const payload = await response.json();
   return sessionFromPayload(payload);
 }
@@ -43,6 +61,23 @@ export async function logout() {
     credentials: 'include'
   });
   if (!response.ok) throw new Error('退出失败，请稍后重试。');
+}
+
+export async function clearNativeSessionCookie() {
+  const capacitor = globalThis.Capacitor;
+  if (capacitor?.isNativePlatform?.() !== true) return;
+  try {
+    const transport = capacitor.Plugins?.MobileTransport;
+    const result = await transport?.clearSessionCookie?.();
+    if (result?.cleared !== true) throw nativeSessionClearError();
+  } catch {
+    throw nativeSessionClearError();
+  }
+}
+
+export async function logoutAndClearNativeSession() {
+  await logout();
+  await clearNativeSessionCookie();
 }
 
 export async function fetchExportScope() {

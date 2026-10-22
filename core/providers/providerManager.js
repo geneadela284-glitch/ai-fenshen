@@ -156,13 +156,10 @@ export class ProviderManager {
 
   getCapabilities(providerId = this.activeProvider) {
     const provider = this.getProvider(providerId);
-    const supportsStreaming = provider.supportsStreaming === true && typeof provider.streamChat === 'function';
-    const supportsVoiceStreaming = supportsStreaming ||
-      (provider.supportsVoiceStreaming === true && typeof provider.streamVoiceChat === 'function');
     return {
       supportsChat: provider.supportsChat === true && typeof provider.chat === 'function',
-      supportsStreaming,
-      supportsVoiceStreaming,
+      supportsStreaming: provider.supportsStreaming === true && typeof provider.streamChat === 'function',
+      supportsVoiceStreaming: (provider.supportsStreaming === true && typeof provider.streamChat === 'function') || (provider.supportsVoiceStreaming === true && typeof provider.streamVoiceChat === 'function'),
       supportsSingleShotSseBridge:
         provider.supportsSingleShotSseBridge === true &&
         provider.supportsChat === true &&
@@ -192,12 +189,16 @@ export class ProviderManager {
       const nextRequest = this.buildRequest({ ...request, provider: providerId }, credentials);
       const provider = this.getProvider(providerId);
       const capabilities = this.getCapabilities(providerId);
-      const voiceRealtimeOnly = nextRequest.metadata?.voiceRealtimeOnly === true;
-      if (method === 'streamChat' && voiceRealtimeOnly && capabilities.supportsVoiceStreaming) {
-        if (typeof provider.streamVoiceChat === 'function') {
-          return provider.streamVoiceChat(nextRequest, invocationOptions);
-        }
-        return provider.streamChat(nextRequest, invocationOptions);
+      if (method === 'streamChat' && nextRequest.metadata?.voiceRealtimeOnly === true && nextRequest.metadata?.routeDomain === 'ordinary_chat' && nextRequest.metadata?.voiceAnswerContext) {
+        if (typeof provider.answerWithTools !== 'function') throw Object.assign(new Error('VOICE_ANSWER_UNSUPPORTED'), {code:'VOICE_ANSWER_UNSUPPORTED'});
+        return provider.answerWithTools(nextRequest, invocationOptions);
+      }
+      if (method === 'streamChat' && nextRequest.metadata?.voiceRealtimeOnly === true && nextRequest.metadata?.voicePublicSearch) {
+        if (typeof provider.searchPublicInformation !== 'function') throw Object.assign(new Error('PUBLIC_SEARCH_UNAVAILABLE'), {code:'PUBLIC_SEARCH_UNAVAILABLE'});
+        return provider.searchPublicInformation(nextRequest, invocationOptions);
+      }
+      if (method === 'streamChat' && nextRequest.metadata?.voiceRealtimeOnly === true && capabilities.supportsVoiceStreaming) {
+        return typeof provider.streamVoiceChat === 'function' ? provider.streamVoiceChat(nextRequest, invocationOptions) : provider.streamChat(nextRequest, invocationOptions);
       }
       if (method === 'streamChat' && capabilities.supportsStreaming) {
         return provider.streamChat(nextRequest, invocationOptions);

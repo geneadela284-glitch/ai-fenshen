@@ -1,0 +1,163 @@
+{
+  "source": "Original additive resynthesis; ATT reference pitch/rhythm measurements, enhanced low-mid body; no third-party recordings",
+  "reference": "https://www.bilibili.com/video/BV1DH4y1k7XE/",
+  "sampleRate": 44100,
+  "version": "att-award-2",
+  "cardIntervalMs": 195,
+  "cardFrequenciesHz": [
+    130.81,
+    146.83,
+    164.81,
+    174.61,
+    196.0
+  ],
+  "files": {
+    "deal1": {
+      "seconds": 0.185,
+      "peakDbFS": -7.97,
+      "rmsDbFS": -17.62,
+      "bytes": 16360,
+      "sha256": "7b0e9c986a8a898dbc220a8f44b7c0b8d7f1d4742bdcba500062541a3b3493e5"
+    },
+    "deal2": {
+      "seconds": 0.185,
+      "peakDbFS": -8.01,
+      "rmsDbFS": -17.62,
+      "bytes": 16360,
+      "sha256": "f72711382fe867cefebc6b659ae1d20e2cbbd9dac1b0dd7c92cb268c07242eac"
+    },
+    "deal3": {
+      "seconds": 0.185,
+      "peakDbFS": -7.99,
+      "rmsDbFS": -17.61,
+      "bytes": 16360,
+      "sha256": "82b4bc96861ea57bb9615628b702af7a9736b9e6c222d08f7880450bcf1213df"
+    },
+    "deal4": {
+      "seconds": 0.185,
+      "peakDbFS": -7.97,
+      "rmsDbFS": -17.61,
+      "bytes": 16360,
+      "sha256": "d2d6c4e29dbca5507e9fc1184506cda6a03490b4388c6eb73eade7eb5b56ed98"
+    },
+    "deal5": {
+      "seconds": 0.185,
+      "peakDbFS": -7.97,
+      "rmsDbFS": -17.61,
+      "bytes": 16360,
+      "sha256": "2b2e3d7d0d3fef6edf7ece370ed5fb83702970f23a9d378d8b365903c32d6f91"
+    },
+    "deal": {
+      "seconds": 0.185,
+      "peakDbFS": -7.97,
+      "rmsDbFS": -17.62,
+      "bytes": 16360,
+      "sha256": "f55bdb6edfd075108eab11dc56e8abe9a722ff90d92e209682182dc0e83d4d37"
+    },
+    "flip": {
+      "seconds": 0.185,
+      "peakDbFS": -7.97,
+      "rmsDbFS": -17.61,
+      "bytes": 16360,
+      "sha256": "a55a4fbea66a770f349b9f2e2e159bdcecc898f1f1df2332ef8eb05a5c0b770a"
+    },
+    "shuffle": {
+      "seconds": 0.185,
+      "peakDbFS": -9.88,
+      "rmsDbFS": -19.68,
+      "bytes": 16360,
+      "sha256": "8bac47e6b17b9a4b1e1e24f177dd0fed4d50bf64cb836a51c768a5e1dc000c75"
+    },
+    "hold": {
+      "seconds": 0.15,
+      "peakDbFS": -10.72,
+      "rmsDbFS": -19.66,
+      "bytes": 13274,
+      "sha256": "f396a9387f89aaf054840275e562d7650470871bf6837437c20a669d1ea922ae"
+    },
+    "release": {
+      "seconds": 0.15,
+      "peakDbFS": -11.31,
+      "rmsDbFS": -20.3,
+      "bytes": 13274,
+      "sha256": "35618c402b1146fc33bbc2c7ab3c618348aef6b509c8b159b3f3fb4a9ce5be9f"
+    },
+    "double": {
+      "seconds": 0.84,
+      "peakDbFS": -6.55,
+      "rmsDbFS": -14.69,
+      "bytes": 74132,
+      "sha256": "f994c27dbbe3a29e3464887b6065c82ec86de2e9d163e92986adb115c948c4d7"
+    },
+    "pair": {
+      "seconds": 1.2,
+      "peakDbFS": -4.81,
+      "rmsDbFS": -16.19,
+      "bytes": 105884,
+      "sha256": "0ea6f838fe47b878654c753cc11d327f26949960a5a7f69417bb37459846a9cd"
+    },
+    "win": {
+      "seconds": 0.84,
+      "peakDbFS": -6.55,
+      "rmsDbFS": -14.69,
+      "bytes": 74132,
+      "sha256": "f994c27dbbe3a29e3464887b6065c82ec86de2e9d163e92986adb115c948c4d7"
+    },
+    "bigwin": {
+      "seconds": 1.0,
+      "peakDbFS": -7.0,
+      "rmsDbFS": -15.47,
+      "bytes": 88244,
+      "sha256": "02593cfedee5bf6fac7e2a27dcb5abc09f70199b9384d0bae2a55a6574a54eb3"
+    },
+    "jackpot": {
+      "seconds": 1.18,
+      "peakDbFS": -7.17,
+      "rmsDbFS": -16.08,
+      "bytes": 104120,
+      "sha256": "efc9792c70b2e33ee36f4e76e55dde359a0093f55da2b2bc78f3b8fce87595c2"
+    },
+    "intro": {
+      "seconds": 0.7,
+      "peakDbFS": -7.49,
+      "rmsDbFS": -16.58,
+      "bytes": 61784,
+      "sha256": "cb7e4b5ae6a3105b94d006ed16e8753c215a07c9c52f856c9a096329f3532df8"
+    },
+    "even": {
+      "seconds": 0.28,
+      "peakDbFS": -7.11,
+      "rmsDbFS": -16.44,
+      "bytes": 24740,
+      "sha256": "b2c067351a50a939d6bd215e27acbfecd6f5e06c76eff43217ca0c09ad807e3b"
+    },
+    "loss": {
+      "seconds": 0.375,
+      "peakDbFS": -6.99,
+      "rmsDbFS": -15.83,
+      "bytes": 33120,
+      "sha256": "febb67d147cfc46b4518d3e63783afbb00fb49986401a8d7f29b103dda44fd34"
+    },
+    "push": {
+      "seconds": 0.335,
+      "peakDbFS": -7.96,
+      "rmsDbFS": -17.29,
+      "bytes": 29590,
+      "sha256": "1161cee10c2ef42b948505e2ae36072eab49a03a262bf3123ca316a486ce6db8"
+    },
+    "roll": {
+      "seconds": 0.45,
+      "peakDbFS": -14.03,
+      "rmsDbFS": -20.68,
+      "bytes": 39734,
+      "sha256": "504468b86ac0b091e17de5acdc3c8b6699b69bd039be8e6a127b3dce2a16c50e"
+    },
+    "collect": {
+      "seconds": 0.132,
+      "peakDbFS": -14.8,
+      "rmsDbFS": -19.32,
+      "bytes": 11686,
+      "sha256": "9a9e32a76b4ae1524e04f2edef99f060e1fead39113310a3dcad7355c539df19"
+    }
+  }
+}

@@ -99,3 +99,36 @@ export function createAttachmentClient({ fetchImpl = globalThis.fetch } = {}) {
     }
   });
 }
+
+// The native app authenticates fetch through MobileTransport; an <img> request
+// does not pass through that bridge. Keep image bytes in memory, never in URLs
+// carrying credentials or in persistent storage.
+export function createAttachmentPreviewResource(source, {
+  fetchImpl = globalThis.fetch,
+  createObjectURL = blob => URL.createObjectURL(blob),
+  revokeObjectURL = url => URL.revokeObjectURL(url)
+} = {}) {
+  const controller = new AbortController();
+  let objectUrl = '';
+  let disposed = false;
+  const ready = (async () => {
+    if (!/^\/api\/attachments\/[^/?#]+\/content$/.test(source)) {
+      throw clientError('ATTACHMENT_NOT_FOUND', '图片地址无效。');
+    }
+    const response = await fetchImpl(`${source}?preview=1`, { credentials: 'include', signal: controller.signal });
+    if (!response.ok) throw safeError(response.status, await readJson(response));
+    const blob = await response.blob();
+    if (disposed) throw new DOMException('Aborted', 'AbortError');
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(blob.type) || !blob.size) {
+      throw clientError('FILE_CORRUPT', '图片暂时无法显示。');
+    }
+    objectUrl = createObjectURL(blob);
+    return objectUrl;
+  })();
+  return { ready, dispose() {
+    if (disposed) return;
+    disposed = true;
+    controller.abort();
+    if (objectUrl) revokeObjectURL(objectUrl);
+  } };
+}

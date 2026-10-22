@@ -1,4 +1,5 @@
 import crypto from 'node:crypto';
+import { selectImageFollowup } from './followupSelection.js';
 
 import {
   ATTACHMENT_PROCESSING_STATES,
@@ -89,6 +90,21 @@ export class AttachmentProcessingService {
     }
   }
 
+  resolveFollowup({ ownerId, conversationId, question, messageId }) {
+    this.assertMessageOwner(ownerId, conversationId, messageId);
+    const messages = this.conversationRuntime.messages.listForConversationOwner(conversationId, ownerId);
+    const before = messages.slice(0, messages.findIndex(m => m.id === messageId));
+    const order = new Map(before.map((m,i) => [m.id,i]));
+    const seen = new Set();
+    const groups = this.repository.listProcessingJobsForOwner(ownerId)
+      .filter(job => job.conversationId === conversationId && order.has(job.messageId))
+      .sort((a,b) => order.get(a.messageId)-order.get(b.messageId))
+      .map(job => ({messageId:job.messageId,attachmentIds:this.repository.listProcessingItems(job.processingId).map(item=>item.attachmentId)}))
+      .filter(group => { const key=group.attachmentIds.join('|'); if(seen.has(key))return false; seen.add(key); return true; });
+    const last = groups.at(-1);
+    return selectImageFollowup(question, groups, { adjacent:!!last && before.slice(order.get(last.messageId)+1).filter(m=>m.role==='user').length<=1 });
+  }
+
   validateQuestion(userQuestion) {
     const question = String(userQuestion || '').trim();
     if (!question) throw attachmentError('MESSAGE_REQUIRED');
@@ -114,6 +130,9 @@ export class AttachmentProcessingService {
     userQuestion,
     clientRequestId,
     retry = false,
+    followup = false,
+    conversationContext = '',
+    onProgress = () => {},
     invocation = {}
   } = {}) {
     const owner = String(authenticatedUserId || '').trim();
@@ -154,8 +173,7 @@ export class AttachmentProcessingService {
           }
         });
       }
-      const completed = this.loadCompleted(existing);
-      if (completed) return completed;
+
     }
 
     const attachments = ids.map((id) => {
@@ -171,12 +189,14 @@ export class AttachmentProcessingService {
       if (row.processingState === ATTACHMENT_PROCESSING_STATES.DELETED) {
         throw attachmentError('ATTACHMENT_DELETED', { status: 410 });
       }
-      if (!PROCESSABLE_STATES.has(row.processingState)) {
+      if (followup && (!row.messageId || row.conversationId !== conversationId)) throw attachmentError('ATTACHMENT_FORBIDDEN', {status:403});
+      if (!PROCESSABLE_STATES.has(row.processingState) && !(followup && TERMINAL_STATES.has(row.processingState)) && !TERMINAL_STATES.has(existing?.state)) {
         throw attachmentError('ATTACHMENT_NOT_READY', { status: 409 });
       }
       return row;
     });
 
+    if (existing) { const completed = this.loadCompleted(existing); if (completed) return completed; }
     const processingId = existing?.processingId || `proc_${crypto.randomUUID()}`;
     const questionReference = existing?.userQuestionReference ||
       `derived/${processingId}/user-question.json`;
@@ -203,7 +223,7 @@ export class AttachmentProcessingService {
     if (job.errorCode === 'ATTACHMENT_PROCESSING_INTERRUPTED') {
       throw attachmentError('ATTACHMENT_PROCESSING_INTERRUPTED', { status: 409 });
     }
-    this.repository.bindToMessage({
+    if (!followup) this.repository.bindToMessage({
       userId: owner,
       conversationId,
       messageId,
@@ -211,6 +231,10 @@ export class AttachmentProcessingService {
       maxAttachments: 3
     });
 
+    const reportProgress = (stage, completedImages = 0) => {
+      // Progress is observational: disconnected listeners cannot change a job's result.
+      try { onProgress({ stage, completedImages, totalImages: attachments.length }); } catch {}
+    };
     const partialErrors = [];
     const ocrEvidence = [];
     this.repository.updateProcessingJob(processingId, { state: ATTACHMENT_PROCESSING_STATES.OCR });
@@ -218,12 +242,17 @@ export class AttachmentProcessingService {
       this.repository.setProcessingState(item.attachmentId, ATTACHMENT_PROCESSING_STATES.OCR)
     );
 
-    for (const attachment of attachments) {
+    reportProgress(ATTACHMENT_PROCESSING_STATES.OCR);
+    let completedImages = 0;
+    const readImageText = async (attachment) => {
+      const stepStarted = performance.now();
       const stepKey = `ocr:${attachment.attachmentId}`;
-      const persisted = this.repository.getOcrResult(processingId, attachment.attachmentId);
+      const persisted = this.repository.getOcrResult(processingId, attachment.attachmentId) || (followup ? this.repository.getLatestOcrForOwnerAttachment(owner, conversationId, attachment.attachmentId) : null);
       if (persisted) {
+        if (persisted.processingId !== processingId) this.repository.saveOcrResult({processingId,attachmentId:attachment.attachmentId,model:persisted.model,resultReference:persisted.resultReference,usage:null});
         ocrEvidence.push(this.storage.readJson(persisted.resultReference));
-        continue;
+        reportProgress(ATTACHMENT_PROCESSING_STATES.OCR, ++completedImages);
+        return;
       }
       const priorStep = this.repository.getProcessingStep(processingId, stepKey);
       if (priorStep?.status === 'interrupted' || priorStep?.status === 'in_flight') {
@@ -231,7 +260,8 @@ export class AttachmentProcessingService {
       }
       if (priorStep?.status === 'failed') {
         partialErrors.push({ type: 'ocr', attachmentId: attachment.attachmentId, code: priorStep.errorCode });
-        continue;
+        reportProgress(ATTACHMENT_PROCESSING_STATES.OCR, ++completedImages);
+        return;
       }
       const trace = createProviderTrace({
         requestId: invocation.requestLease?.requestId,
@@ -308,12 +338,28 @@ export class AttachmentProcessingService {
           code
         });
       }
-    }
+      reportProgress(ATTACHMENT_PROCESSING_STATES.OCR, ++completedImages);
+      safeLog(this.logger, { event: 'attachment_timing', processingRef: digest(processingId), state: 'settled', callType: 'ocr', durationMs: Math.round(performance.now() - stepStarted), inputBytes: attachment.byteSize });
+    };
+
+    // Each call retains its own reservation. Bound concurrency without increasing call count.
+    let nextImage = 0;
+    const workers = await Promise.allSettled(Array.from({ length: Math.min(2, attachments.length) }, async () => {
+      while (nextImage < attachments.length) {
+        const attachment = attachments[nextImage++];
+        await readImageText(attachment);
+      }
+    }));
+    const failedWorker = workers.find(worker => worker.status === 'rejected');
+    if (failedWorker) throw failedWorker.reason;
+    // Completion order must never change the user's image ordering.
+    ocrEvidence.sort((left, right) => ids.indexOf(left.attachmentId) - ids.indexOf(right.attachmentId));
 
     this.repository.updateProcessingJob(processingId, { state: ATTACHMENT_PROCESSING_STATES.VISION });
     attachments.forEach((item) =>
       this.repository.setProcessingState(item.attachmentId, ATTACHMENT_PROCESSING_STATES.VISION)
     );
+    reportProgress(ATTACHMENT_PROCESSING_STATES.VISION);
     let visionEvidence = null;
     const existingVision = this.repository.getVisionResult(processingId);
     if (existingVision) {
@@ -338,11 +384,14 @@ export class AttachmentProcessingService {
           callType: 'vision',
           ...trace
         });
+        const visionStarted = performance.now();
         try {
           const result = await this.providerExecutor.runVision({
             attachments,
             buffers: attachments.map((item) => this.storage.readObject(item.storageReference)),
             userQuestion: question,
+            conversationContext,
+            ocrEvidence,
             trace,
             invocation
           });
@@ -350,6 +399,7 @@ export class AttachmentProcessingService {
             attachmentIds: ids,
             visionModel: result.visionModel || 'qwen3-vl-plus',
             sceneSummary: String(result.sceneSummary || ''),
+            questionAnswer: typeof result.questionAnswer === 'string' ? result.questionAnswer : '',
             objects: Array.isArray(result.objects) ? result.objects : [],
             colors: Array.isArray(result.colors) ? result.colors : [],
             spatialRelations: Array.isArray(result.spatialRelations) ? result.spatialRelations : [],
@@ -375,6 +425,7 @@ export class AttachmentProcessingService {
             resultReference,
             usage: visionEvidence.usage
           });
+          safeLog(this.logger, { event: 'attachment_timing', processingRef: digest(processingId), state: 'settled', callType: 'vision', durationMs: Math.round(performance.now() - visionStarted), inputBytes: attachments.reduce((sum, item) => sum + item.byteSize, 0) });
           safeLog(this.logger, {
             event: 'attachment_processing',
             processingRef: digest(processingId),
@@ -389,6 +440,7 @@ export class AttachmentProcessingService {
           const code = providerCode(error, 'VISION_PROVIDER_UNAVAILABLE');
           this.repository.failProcessingStep(processingId, stepKey, code);
           partialErrors.push({ type: 'vision', code });
+          safeLog(this.logger, { event: 'attachment_timing', processingRef: digest(processingId), state: 'settled', callType: 'vision', durationMs: Math.round(performance.now() - visionStarted), inputBytes: attachments.reduce((sum, item) => sum + item.byteSize, 0) });
           safeLog(this.logger, {
             event: 'attachment_processing',
             processingRef: digest(processingId),
@@ -426,6 +478,7 @@ export class AttachmentProcessingService {
     attachments.forEach((item) =>
       this.repository.setProcessingState(item.attachmentId, ATTACHMENT_PROCESSING_STATES.MERGING)
     );
+    reportProgress(ATTACHMENT_PROCESSING_STATES.MERGING, attachments.length);
     const merged = this.evidenceMerger.merge({
       userQuestion: question,
       ocrEvidence,

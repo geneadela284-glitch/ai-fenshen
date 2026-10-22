@@ -25,3 +25,8 @@ test('legacy playback notes cannot be read even when split across streamed delta
 test('ordinary playback discussion and unmatched short prefixes remain audible',()=>{
  for(const input of ['我刚才没听清，你再说一遍。','这条语音','用户可能希望继续聊。']){const parser=new SpeechText();assert.equal([...parser.push(input),...parser.finish()].join(''),input);}
 });
+test('memory references split across deltas never enter speech',()=>{
+ const parser=new SpeechText();const pieces=['你喜欢喝龙井。[记','忆:mem_abc:','2]接下来继续。'];
+ const result=[...pieces.flatMap(p=>parser.push(p)),...parser.finish()].join('');
+ assert.equal(result,'你喜欢喝龙井。接下来继续。');
+});

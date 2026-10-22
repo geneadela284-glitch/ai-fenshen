@@ -1,6 +1,10 @@
+import { recordChatTiming } from './chatTiming.js';
 import GameBoundary from './games/GameBoundary.jsx';
+import { LocalMemoryContext } from './LocalMemoryContext.jsx';
+import { createLocalMemoryClient } from './localMemoryClient.js';
+import LocalMemoryView from './LocalMemoryView.jsx';
 import { useVoiceChat } from './voiceChat/useVoiceChat.js';
-import VoiceChatPanel from './voiceChat/VoiceChatPanel.jsx';
+import VoiceChatPanel, { VoiceChatBar } from './voiceChat/VoiceChatPanel.jsx';
 import { GAMES_ENABLED } from './games/feature.js';
 import { gameIntent } from './games/intent.js';
 import LearningView from './learning/LearningView.jsx';
@@ -16,10 +20,11 @@ import { decodeDocumentMessage } from '../../../../../core/documentQa/contract.j
 import { collectMeetingEvidence } from '../../lib/meetingQueryReader.js';
 import { lazy, Suspense, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { AnimatePresence, LazyMotion, domAnimation, useReducedMotion } from 'motion/react';
-import { fetchCurrentSession, loginSession as loginAccount, logout as logoutAccount } from '../../lib/authClient.js';
+import { clearNativeSessionCookie, fetchCurrentSession, loginSession as loginAccount, logoutAndClearNativeSession } from '../../lib/authClient.js';
 import { acceptPrivacyConsent, fetchPrivacyConsent } from '../../lib/privacyClient.js';
 import { createTasksClient, SAFE_TASKS_ERROR } from '../../lib/tasksClient.js';
 import HomeAmbientScene from './HomeAmbientScene.jsx';
+import { expireBootstrapSession, restoreBootstrapSession } from './sessionBootstrap.js';
 import ImmersiveChatView from './ImmersiveChatView.jsx';
 import RealAccountLogin from './RealAccountLogin.jsx';
 import RealSettingsView from './RealSettingsView.jsx';
@@ -31,7 +36,7 @@ import MeetingCenter from '../../components/MeetingCenter.jsx';
 import ThemeProvider from './ThemeProvider.jsx';
 import { createRealConversationClient } from './realConversationClient.js';
 import { createAccountWorkspaceTransition } from './accountSessionBoundary.js';
-import { createAttachmentClient } from './attachmentClient.js';
+import { createAttachmentClient, ATTACHMENT_DEFAULT_QUESTION } from './attachmentClient.js';
 import { readMeetingRouteRecoveryForOwner } from '../../lib/meetingRouteRecoveryUi.js';
 import {
   addSelectedImages,
@@ -60,6 +65,7 @@ import {
 import { FEATURE_INTRO_VERSION } from './homeFeatureIntro.js';
 import { useDictation } from './useDictation.js';
 import './aiFenshenPrototype.css';
+import './homeBackground20260928.css';
 
 const GamesView = lazy(() => import('./games/GamesView.jsx'));
 
@@ -112,8 +118,18 @@ export default function AIFenshenRealApp() {
     loading: true,
     user: null,
     featureFlags: { financeF201Enabled: false },
-    error: ''
+    error: '',
+    recoverable: false
   });
+  const [sessionRetryKey, setSessionRetryKey] = useState(0);
+  const [memoryResults, setMemoryResults] = useState({});
+  const [memoryRevision, setMemoryRevision] = useState(0);
+  const memoryReturnRef = useRef('home');
+  const localMemory = useMemo(() => createLocalMemoryClient({ ownerId: session.user?.id, onTiming: recordChatTiming,
+    onResult: (id, result) => setMemoryResults(current => ({ ...current, [id]: result })),
+    onChanged: () => { setMemoryRevision(value => value + 1); setMemoryResults({}); }
+  }), [session.user?.id]);
+  useEffect(() => { localMemory.activate(); return () => localMemory.close(); }, [localMemory]);
   const [privacyConsent, setPrivacyConsent] = useState(null);
   const [attachmentCapability, setAttachmentCapability] = useState({ loading: true, enabled: false });
   const [selectedAttachments, setSelectedAttachments] = useState([]);
@@ -162,8 +178,10 @@ export default function AIFenshenRealApp() {
   const [meetingRouteRecovery, setMeetingRouteRecovery] = useState(null);
   const canvasRef = useRef(null);
   const activeRequestRef = useRef(null);
+  const activeUploadRef = useRef(null);
   const submissionLockRef = useRef(null);
   const pendingSendRef = useRef(null);
+  const sessionGenerationRef = useRef(0);
   const selectedAttachmentsRef = useRef([]);
   const toastTimerRef = useRef(null);
   const reducedMotion = Boolean(useReducedMotion());
@@ -192,6 +210,7 @@ export default function AIFenshenRealApp() {
   }, [selectedAttachments]);
 
   useEffect(() => () => {
+    activeUploadRef.current?.controller.abort();
     releaseAttachmentPreviews(selectedAttachmentsRef.current);
   }, []);
 
@@ -213,22 +232,36 @@ export default function AIFenshenRealApp() {
 
   useEffect(() => {
     let cancelled = false;
-    fetchCurrentSession().then(async ({ user, featureFlags }) => {
-      const privacy = user ? await fetchPrivacyConsent() : null;
-      if (!cancelled) {
-        accountWorkspace.transitionTo(user?.id || null);
+    const generation = sessionGenerationRef.current;
+    void restoreBootstrapSession({
+      fetchSession: fetchCurrentSession,
+      fetchPrivacyConsent,
+      accountWorkspace,
+      isCurrent: () => !cancelled && generation === sessionGenerationRef.current,
+      onAuthenticated: ({ user, featureFlags, privacy }) => {
         setThemePreference(readThemePreferenceForUser(user?.id));
         setPrivacyConsent(privacy);
-        setSession({ loading: false, user, featureFlags, error: '' });
-      }
-    }).catch(() => {
-      if (!cancelled) {
-        accountWorkspace.transitionTo(null);
-        setSession({ loading: false, user: null, error: '请使用现有账号登录。' });
+        setSession({ loading: false, user, featureFlags, error: '', recoverable: false });
+      },
+      onUnauthenticated: async ({ featureFlags }) => {
+        let nativeClearFailed = false;
+        try {
+          await clearNativeSessionCookie();
+        } catch {
+          nativeClearFailed = true;
+        }
+        if (cancelled || generation !== sessionGenerationRef.current) return;
+        setThemePreference('auto');
+        setPrivacyConsent(null);
+        setSession({ loading: false, user: null, featureFlags, error: nativeClearFailed ? '登录已过期，本机登录状态暂时无法清理，请重新登录。' : '请使用现有账号登录。', recoverable: false });
+      },
+      onUnavailable: () => {
+        setPrivacyConsent(null);
+        setSession({ loading: false, user: null, featureFlags: { financeF201Enabled: false }, error: '账号状态暂时无法确认，请检查网络后重试。', recoverable: true });
       }
     });
     return () => { cancelled = true; };
-  }, [accountWorkspace]);
+  }, [accountWorkspace, sessionRetryKey]);
 
   useEffect(() => {
     if (!session.user?.id) return undefined;
@@ -256,7 +289,7 @@ export default function AIFenshenRealApp() {
       })
       .catch((caught) => {
         if (cancelled || !accountWorkspace.isCurrent(accountToken)) return;
-        if (requiresAccountReset(caught)) expireSession();
+        if (requiresAccountReset(caught)) expireSession(accountToken);
         else setAttachmentCapability({ loading: false, enabled: false });
       });
     return () => { cancelled = true; };
@@ -279,7 +312,7 @@ export default function AIFenshenRealApp() {
       .catch((caught) => {
         if (cancelled || caught?.name === 'AbortError' || !accountWorkspace.isCurrent(accountToken)) return;
         if (requiresAccountReset(caught)) {
-          expireSession();
+          expireSession(accountToken);
           return;
         }
         accountWorkspace.commit(accountToken, () => {
@@ -318,7 +351,7 @@ export default function AIFenshenRealApp() {
         });
       } catch (caught) {
         if (cancelled || !accountWorkspace.isCurrent(accountToken)) return;
-        if (requiresAccountReset(caught)) expireSession();
+        if (requiresAccountReset(caught)) expireSession(accountToken);
         else setError(SAFE_ERROR);
       }
     };
@@ -351,7 +384,7 @@ export default function AIFenshenRealApp() {
         const restored = await client.loadMessages(conversationId);
         if (!cancelled) accountWorkspace.commit(accountToken, () => setMessages(restoreConversationMessages(restored)));
       } catch (caught) {
-        if (!cancelled && accountWorkspace.isCurrent(accountToken) && requiresAccountReset(caught)) expireSession();
+        if (!cancelled && accountWorkspace.isCurrent(accountToken) && requiresAccountReset(caught)) expireSession(accountToken);
       } finally {
         if (!cancelled && accountWorkspace.isCurrent(accountToken)) timer = window.setTimeout(refresh, 1500);
       }
@@ -391,6 +424,9 @@ export default function AIFenshenRealApp() {
     }, 2000);
   };
 
+  const dictationLeaseRef = useRef(null);
+  const dictationReleaseRef = useRef(() => {});
+  const dictationReleasePromiseRef = useRef(Promise.resolve());
   const {
     voiceState,
     voiceError,
@@ -402,11 +438,20 @@ export default function AIFenshenRealApp() {
     draft,
     onDraftChange: setDraft,
     busy: BUSY_STATES.has(state.composerState),
+    onSettled: () => dictationReleaseRef.current(),
     showToast
   });
 
   const voiceChat = useVoiceChat({
+    onTiming: recordChatTiming,
     ownerId: session.user?.id, conversationId, featureView,
+    prepareContext: async args => {
+      const token = documentQa.session.token();
+      const documentQuery = documentQa.session.current ? await documentQa.forQuery({ conversationId: voiceChat.engine.conversationId, question: args.text }) : null;
+      if (args.signal.aborted || (documentQuery && !documentQa.session.isCurrent(token))) throw new DOMException('Cancelled', 'AbortError');
+      const localMemoryEvidence = await localMemory.prepare({ ...args, captureEligible: !documentQuery });
+      return { localMemory: localMemoryEvidence, documentQuery };
+    },
     enabled: Boolean(session.user?.id && accountWorkspace.isOwner(session.user.id)) && privacyConsent?.consent?.current === true && session.featureFlags?.voiceChatEnabled === true,
     onConversation: id => {
       if (!accountWorkspace.isOwner(session.user?.id)) return;
@@ -426,13 +471,33 @@ export default function AIFenshenRealApp() {
       if (event.type === 'interrupted') setMessages(current => current.map(m => m.id === data.messageId ? { ...m, status: m.status === 'streaming' ? 'stopped' : m.status, voiceDelivery: { status: 'interrupted' } } : m));
     }
   });
+  dictationReleaseRef.current = () => {
+    const pending = dictationLeaseRef.current; dictationLeaseRef.current = null;
+    if (pending) { pending.cancelled = true; dictationReleasePromiseRef.current = pending.start.then(lease => voiceChat.engine.finishExternalInput(lease)).catch(() => {}); }
+    return dictationReleasePromiseRef.current;
+  };
+  const toggleDictation = () => {
+    if (['requesting_permission', 'recording', 'processing'].includes(voiceState)) return onVoice();
+    if (dictationLeaseRef.current) { dictationReleaseRef.current(); return false; }
+    if (!voiceChat.engine.sessionId) return onVoice();
+    const pending = { lease: null, cancelled: false }; dictationLeaseRef.current = pending;
+    pending.start = voiceChat.engine.beginExternalInput();
+    void pending.start.then(lease => {
+      pending.lease = lease;
+      if (pending.cancelled || !lease || !voiceChat.engine.sessionId) { void voiceChat.engine.finishExternalInput(lease); return; }
+      if (!onVoice()) dictationReleaseRef.current();
+    }).catch(() => { dictationLeaseRef.current = null; showToast('语音切换未完成，请重试'); });
+    return true;
+  };
   const openVoiceChat = session.featureFlags?.voiceChatEnabled === true ? () => {
-    if (BUSY_STATES.has(state.composerState) || selectedAttachmentsRef.current.length || documentQa.session.current) return;
+    if (BUSY_STATES.has(state.composerState)) return;
     onVoiceCancel();
+    dictationReleaseRef.current();
     voiceChat.open();
   } : undefined;
 
   const resetAccountWorkspace = () => {
+    localMemory.close(); setMemoryResults({}); setMemoryRevision(0);
     voiceChat.end();
     onVoiceCancel();
     const active = activeRequestRef.current;
@@ -441,6 +506,8 @@ export default function AIFenshenRealApp() {
       active.controller.abort();
       activeRequestRef.current = null;
     }
+    activeUploadRef.current?.controller.abort();
+    activeUploadRef.current = null;
     submissionLockRef.current = null;
     pendingSendRef.current = null;
     documentRequestRefs.current.clear();
@@ -468,12 +535,23 @@ export default function AIFenshenRealApp() {
   };
   accountResetRef.current = resetAccountWorkspace;
 
-  const expireSession = () => {
-    accountWorkspace.transitionTo(null);
-    setSession({ loading: false, user: null, error: '登录已过期，请重新登录。' });
+  const expireSession = (expectedToken = accountWorkspace.capture()) => {
+    if (!accountWorkspace.isCurrent(expectedToken)) return;
+    sessionGenerationRef.current += 1;
+    const generation = sessionGenerationRef.current;
+    setSession({ loading: true, user: null, featureFlags: { financeF201Enabled: false }, error: '', recoverable: false });
+    void expireBootstrapSession({
+      accountWorkspace,
+      expectedToken,
+      isCurrent: () => generation === sessionGenerationRef.current,
+      clearNativeSessionCookie,
+      onExpired: ({ nativeClearFailed }) => {
+        setSession({ loading: false, user: null, featureFlags: { financeF201Enabled: false }, error: nativeClearFailed ? '登录已过期，本机登录状态暂时无法清理，请重新登录。' : '登录已过期，请重新登录。', recoverable: false });
+      }
+    });
   };
 
-  const runStream = async ({ content, clientRequestId, attachmentIds = [], retry = false }) => {
+  const runStream = async ({ content, clientRequestId, attachmentIds = [], retry = false, voiceLease = null }) => {
     const accountToken = accountWorkspace.capture();
     const controller = new AbortController();
     const active = { controller, clientRequestId, requestId: '', intentional: false, accountToken };
@@ -481,7 +559,10 @@ export default function AIFenshenRealApp() {
     dispatch({ type: 'SET_COMPOSER_STATE', value: 'sending' });
     setError('');
     let terminalEvent = false;
+    let ownVoiceLease = null;
     try {
+      await dictationReleasePromiseRef.current;
+      if (!voiceLease) ownVoiceLease = await voiceChat.engine.beginExternalInput();
       const queryOwner = session.user;
       let targetConversationId = conversationId;
       let documentQuery = null;
@@ -503,6 +584,8 @@ export default function AIFenshenRealApp() {
       const meetingQuery = attachmentIds.length || documentQuery ? null : await collectMeetingEvidence({
         user: queryOwner, question: content, timezone: userTimezone, signal: controller.signal
       });
+      const localMemoryEvidence = await localMemory.prepare({ text: content, requestId: clientRequestId,
+        captureEligible: !attachmentIds.length && !documentQuery, signal: controller.signal });
       if (controller.signal.aborted || activeRequestRef.current !== active || !accountWorkspace.isCurrent(accountToken) || meetingQueryOwnerRef.current !== queryOwner?.id) {
         throw new DOMException('Request cancelled', 'AbortError');
       }
@@ -511,6 +594,7 @@ export default function AIFenshenRealApp() {
         documentQuery,
         message: content,
         meetingQuery,
+        localMemory: localMemoryEvidence,
         clientRequestId,
         attachmentIds,
         retry,
@@ -542,7 +626,7 @@ export default function AIFenshenRealApp() {
     } catch (caught) {
       if (active.intentional || caught?.name === 'AbortError') return;
       if (requiresAccountReset(caught)) {
-        expireSession();
+        expireSession(accountToken);
         return;
       }
       accountWorkspace.commit(accountToken, () => {
@@ -554,10 +638,11 @@ export default function AIFenshenRealApp() {
       });
     } finally {
       if (activeRequestRef.current === active) activeRequestRef.current = null;
+      await voiceChat.engine.finishExternalInput(ownVoiceLease);
     }
   };
 
-  const uploadAttachments = async (queue, clientRequestId, accountToken) => {
+  const uploadAttachments = async (queue, clientRequestId, accountToken, content) => {
     if (!queue.length) return [];
     if (!attachmentCapability.enabled) {
       const unavailable = new Error('图片功能当前未启用。');
@@ -571,11 +656,20 @@ export default function AIFenshenRealApp() {
           : item
       )));
     })) throw new DOMException('Account changed', 'AbortError');
-    const result = await attachmentClient.upload({
-      files: queue.map((item) => item.file),
-      conversationId,
-      clientRequestId: `${clientRequestId}:upload`
-    });
+    const upload = { controller: new AbortController(), accountToken, content, queue };
+    activeUploadRef.current = upload;
+    let result;
+    try {
+      result = await attachmentClient.upload({
+        files: queue.map((item) => item.file),
+        conversationId,
+        clientRequestId: `${clientRequestId}:upload`,
+        signal: upload.controller.signal
+      });
+      if (upload.controller.signal.aborted || activeUploadRef.current !== upload) throw new DOMException('Upload cancelled', 'AbortError');
+    } finally {
+      if (activeUploadRef.current === upload) activeUploadRef.current = null;
+    }
     if (!accountWorkspace.isCurrent(accountToken)) throw new DOMException('Account changed', 'AbortError');
     const uploaded = (result.attachments || []).map((attachment, index) => {
       const original = queue[index];
@@ -620,8 +714,12 @@ export default function AIFenshenRealApp() {
     }
     dispatch({ type: 'SET_COMPOSER_STATE', value: 'sending' });
     setError('');
+    let voiceLease = null;
     try {
-      const uploaded = await uploadAttachments(queue, clientRequestId, accountToken);
+      onVoiceCancel();
+      await dictationReleaseRef.current();
+      voiceLease = await voiceChat.engine.beginExternalInput();
+      const uploaded = await uploadAttachments(queue, clientRequestId, accountToken, content);
       if (!accountWorkspace.isCurrent(accountToken)) throw new DOMException('Account changed', 'AbortError');
       const attachmentIds = uploaded.map((item) => item.attachmentId);
       setMessages((current) => createOptimisticExchange(current, {
@@ -629,11 +727,11 @@ export default function AIFenshenRealApp() {
         clientRequestId,
         attachments: uploaded
       }));
-      await runStream({ content, clientRequestId, attachmentIds });
+      await runStream({ content, clientRequestId, attachmentIds, voiceLease });
     } catch (caught) {
       if (caught?.name === 'AbortError' || !accountWorkspace.isCurrent(accountToken)) return;
       if (requiresAccountReset(caught)) {
-        expireSession();
+        expireSession(accountToken);
         return;
       }
       setSelectedAttachments((current) => current.map((item) => (
@@ -651,6 +749,7 @@ export default function AIFenshenRealApp() {
       dispatch({ type: 'SET_COMPOSER_STATE', value: 'error' });
     } finally {
       if (submissionLockRef.current === submissionLock) submissionLockRef.current = null;
+      await voiceChat.engine.finishExternalInput(voiceLease);
     }
   };
 
@@ -700,6 +799,18 @@ export default function AIFenshenRealApp() {
   };
 
   const stopGeneration = async () => {
+    if (activeUploadRef.current) {
+      const upload = activeUploadRef.current;
+      upload.controller.abort();
+      activeUploadRef.current = null;
+      submissionLockRef.current = null;
+      accountWorkspace.commit(upload.accountToken, () => {
+        setSelectedAttachments(current => current.map(item => upload.queue.some(queued => queued.id === item.id)
+          ? { ...item, status: 'selected', error: '' } : item));
+        setDraft(current => current || upload.content);
+        dispatch({ type: 'SET_COMPOSER_STATE', value: 'idle' });
+      });
+    }
     const active = activeRequestRef.current;
     if (!active || active.intentional) return;
     active.intentional = true;
@@ -718,6 +829,15 @@ export default function AIFenshenRealApp() {
   };
 
   const handleRetry = (assistantId) => {
+    const queued = selectedAttachmentsRef.current;
+    if (!assistantId && queued.some(item => item.status === 'failed')) {
+      if (!BUSY_STATES.has(state.composerState) && !submissionLockRef.current) {
+        const content = draft.trim() || (queued.length === 1 ? ATTACHMENT_DEFAULT_QUESTION.one : ATTACHMENT_DEFAULT_QUESTION.many);
+        setDraft('');
+        void startGeneration(content, queued);
+      }
+      return;
+    }
     const exchange = findRetryExchange(messages, assistantId);
     if (!exchange || BUSY_STATES.has(state.composerState)) return;
     const savedQuestion = decodeDocumentMessage(exchange.content);
@@ -729,7 +849,7 @@ export default function AIFenshenRealApp() {
     } else if (documentQa.session.current) { showToast('请先取消文件引用，再重试原来的消息'); return; }
     if (savedQuestion?.kind === 'question') exchange.content = savedQuestion.data.question;
     setMessages((current) => current.map((message) => (
-      message.id === exchange.assistantId ? { ...message, content: '', status: 'streaming', errorCode: null } : message
+      message.id === exchange.assistantId ? { ...message, content: '', status: 'streaming', errorCode: null, ...(exchange.attachmentIds.length ? { attachmentRequest: true, attachmentProgress: { stage: 'ready_for_processing' } } : {}) } : message
     )));
     void runStream({
       content: exchange.content,
@@ -791,7 +911,7 @@ export default function AIFenshenRealApp() {
           await attachmentClient.delete(queued.attachmentId);
         } catch (caught) {
           if (!accountWorkspace.isCurrent(accountToken)) return;
-          if (requiresAccountReset(caught)) expireSession();
+          if (requiresAccountReset(caught)) expireSession(accountToken);
           else showToast(caught?.message || '图片暂时无法删除，请重试');
           return;
         }
@@ -818,7 +938,7 @@ export default function AIFenshenRealApp() {
       });
     } catch (caught) {
       if (!accountWorkspace.isCurrent(accountToken)) return;
-      if (requiresAccountReset(caught)) expireSession();
+      if (requiresAccountReset(caught)) expireSession(accountToken);
       else showToast(caught?.message || '图片暂时无法删除，请重试');
     }
   };
@@ -837,7 +957,7 @@ export default function AIFenshenRealApp() {
       accountWorkspace.commit(accountToken, () => dispatchTasks({ type: 'task-updated', task: updated }));
     } catch (caught) {
       if (!accountWorkspace.isCurrent(accountToken)) return;
-      if (requiresAccountReset(caught)) expireSession();
+      if (requiresAccountReset(caught)) expireSession(accountToken);
       else setTaskActionError(caught?.message || '事项状态更新失败，请重试。');
     } finally {
       accountWorkspace.commit(accountToken, () => setBusyTaskId(''));
@@ -888,12 +1008,15 @@ export default function AIFenshenRealApp() {
   };
 
   const handleLogin = async (username, password) => {
+    const generation = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = generation;
     const { user, featureFlags } = await loginAccount(username, password);
     const privacy = await fetchPrivacyConsent();
+    if (generation !== sessionGenerationRef.current) return;
     accountWorkspace.transitionTo(user?.id || null);
     setThemePreference(readThemePreferenceForUser(user?.id));
     setPrivacyConsent(privacy);
-    setSession({ loading: false, user, featureFlags, error: '' });
+    setSession({ loading: false, user, featureFlags, error: '', recoverable: false });
   };
 
   const handlePrivacyAccept = async (input) => {
@@ -905,15 +1028,18 @@ export default function AIFenshenRealApp() {
   };
 
   const handleLogout = async () => {
+    const generation = sessionGenerationRef.current + 1;
+    sessionGenerationRef.current = generation;
     onVoiceCancel();
     if (BUSY_STATES.has(state.composerState)) await stopGeneration();
-    await logoutAccount();
+    await logoutAndClearNativeSession();
+    if (generation !== sessionGenerationRef.current) return;
     accountWorkspace.transitionTo(null);
-    setSession({ loading: false, user: null, error: '请使用现有账号登录。' });
+    setSession({ loading: false, user: null, featureFlags: { financeF201Enabled: false }, error: '请使用现有账号登录。', recoverable: false });
   };
 
   const showHome = featureView === 'home' && (state.appView === 'home' || ['entering', 'exiting'].includes(state.chatTransitionState));
-  const showChat = state.appView === 'immersiveChat' && featureView !== 'learning' && featureView !== 'games';
+  const showChat = state.appView === 'immersiveChat' && featureView !== 'learning' && featureView !== 'games' && featureView !== 'localMemory';
   const selectedFeature = getFeature(featureView);
   const accountContextReady = Boolean(session.user?.id && accountWorkspace.isOwner(session.user.id));
 
@@ -931,12 +1057,25 @@ export default function AIFenshenRealApp() {
   };
 
   return (
+    <LocalMemoryContext.Provider value={{ client: localMemory, results: memoryResults, revision: memoryRevision,
+      setResult: (id, result) => setMemoryResults(current => ({ ...current, [id]: result })),
+      open: () => { memoryReturnRef.current = featureView; setFeatureView('localMemory'); } }}>
     <DocumentQaContext.Provider value={documentQa}>
     <LazyMotion features={domAnimation} strict>
       <ThemeProvider themeId={themeId}>
         <div ref={canvasRef} className={`af-prototype-canvas ${DIARY_ENABLED && featureView === 'memory' ? 'is-diary-open' : ''} ${HEALTH_ENABLED && featureView === 'health' ? 'is-health-open' : ''} ${reducedMotion ? 'is-reduced-motion' : ''}`} style={{ '--motion-duration': `${duration}ms` }} data-mode="real" data-theme-mode={themeMode}>
           {session.loading || (session.user && !accountContextReady) ? <div className="af-real-session-loading" role="status">正在确认账号…</div> : null}
-          {!session.loading && !session.user ? <RealAccountLogin onLogin={handleLogin} initialError={session.error} /> : null}
+          {!session.loading && !session.user && session.recoverable ? (
+            <div className="af-real-session-loading" role="alert">
+              <p>{session.error}</p>
+              <button type="button" onClick={() => {
+                sessionGenerationRef.current += 1;
+                setSession({ loading: true, user: null, featureFlags: { financeF201Enabled: false }, error: '', recoverable: false });
+                setSessionRetryKey((value) => value + 1);
+              }}>重新连接</button>
+            </div>
+          ) : null}
+          {!session.loading && !session.user && !session.recoverable ? <RealAccountLogin onLogin={handleLogin} initialError={session.error} /> : null}
           {session.user && accountContextReady && privacyConsent?.consent?.current !== true ? (
             <PrivacyConsentView notice={privacyConsent?.notice || {}} onAccept={handlePrivacyAccept} />
           ) : null}
@@ -971,7 +1110,7 @@ export default function AIFenshenRealApp() {
                   }}
                   onSelectImages={(files) => void handleSelectImages(files)}
                   onRemoveAttachment={(id) => void handleRemoveAttachment(id)}
-                  onVoice={onVoice}
+                  onVoice={toggleDictation}
                   onVoiceChat={openVoiceChat}
                   onVoiceCancel={onVoiceCancel}
                   onTransitionComplete={() => dispatch({ type: 'CHAT_ENTERED' })}
@@ -996,6 +1135,7 @@ export default function AIFenshenRealApp() {
                   transitionState={state.chatTransitionState}
                   transitionProgress={null}
                   reducedMotion={reducedMotion}
+                  voiceBar={voiceChat.compact ? <VoiceChatBar voice={voiceChat} /> : null}
                   messages={messages}
                   draft={draft}
                   attachments={selectedAttachments}
@@ -1026,13 +1166,13 @@ export default function AIFenshenRealApp() {
                   }}
                   onSelectImages={(files) => void handleSelectImages(files)}
                   onRemoveAttachment={(id) => void handleRemoveAttachment(id)}
-                  onVoice={onVoice}
+                  onVoice={toggleDictation}
                   onVoiceChat={openVoiceChat}
                   onVoiceCancel={onVoiceCancel}
                   onRetry={handleRetry}
                 />
               ) : null}
-              {GAMES_ENABLED && featureView === 'games' ? <GameBoundary onBack={returnFromFeature}><Suspense fallback={<div className="af-real-session-loading" role="status">正在打开游戏…</div>}><GamesView key={`games-${session.user.id}`} ownerId={session.user.id} initialGame={initialGame} onBack={returnFromFeature} /></Suspense></GameBoundary> : null}
+              {GAMES_ENABLED && featureView === 'games' ? <GameBoundary onBack={returnFromFeature}><Suspense fallback={<div className="af-real-session-loading"><p role="status">正在打开游戏…</p><button type="button" onClick={returnFromFeature}>返回首页</button></div>}><GamesView key={`games-${session.user.id}`} ownerId={session.user.id} initialGame={initialGame} onBack={returnFromFeature} /></Suspense></GameBoundary> : null}
               {LEARNING_ENABLED && featureView === 'learning' ? <LearningView key={`learning-${session.user?.id}`} ownerId={session.user.id} onSessionExpired={expireSession} onBack={returnFromFeature} /> : null}
               {featureView === 'memory' ? (
                 DIARY_ENABLED ? <DiaryView key={`diary-${session.user?.id}`} initialEntryId={diaryEntryId} onBack={returnFromFeature} onStartChat={startChatFromMemory} onChanged={() => setTasksReloadKey(value=>value+1)} /> : <MemoryFeatureView key="feature-memory" onBack={returnFromFeature} onStartChat={startChatFromMemory} />
@@ -1045,10 +1185,12 @@ export default function AIFenshenRealApp() {
                   onLogout={handleLogout}
                   onAccountDeleted={handleAccountDeleted}
                   onOpenFeatureIntro={openFeatureIntroFromSettings}
+                  onOpenMemory={() => { memoryReturnRef.current = 'settings'; setFeatureView('localMemory'); }}
                   themePreference={themePreference}
                   onThemePreferenceChange={changeThemePreference}
                 />
               ) : null}
+              {featureView === 'localMemory' ? <LocalMemoryView key={`local-memory-${session.user?.id}`} onBack={() => setFeatureView(memoryReturnRef.current)} /> : null}
               {featureView === 'finance' ? (
                 <FinanceView
                   key="feature-finance"
@@ -1071,11 +1213,12 @@ export default function AIFenshenRealApp() {
               ) : null}
             </AnimatePresence>
           ) : null}
-          {voiceChat.visible && accountContextReady ? <VoiceChatPanel voice={voiceChat} onText={() => dispatch({ type: 'ENTER_CHAT' })} /> : null}
+          {voiceChat.visible && accountContextReady ? <VoiceChatPanel voice={voiceChat} onText={() => { dispatch({ type: 'ENTER_CHAT' }); }} /> : null}
           {toast ? <button type="button" className="af-toast" onClick={() => setToast('')} aria-label="关闭提示">{toast}</button> : null}
         </div>
       </ThemeProvider>
     </LazyMotion>
     </DocumentQaContext.Provider>
+    </LocalMemoryContext.Provider>
   );
 }

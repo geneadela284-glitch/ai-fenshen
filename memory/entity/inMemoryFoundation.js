@@ -3,7 +3,7 @@ import { InMemoryEntityRepository } from './inMemoryEntityRepository.js';
 import { InMemoryMemoryRecordV2Repository } from './inMemoryMemoryRecordV2Repository.js';
 import { InMemoryRelationRepository } from './inMemoryRelationRepository.js';
 import { InMemoryMemoryUnitOfWork } from './inMemoryUnitOfWork.js';
-import { createFoundationState } from './inMemoryFoundationState.js';
+import { createFoundationState, cloneFoundationState } from './inMemoryFoundationState.js';
 
 function buildRepositories(holder, options, scopeOwnerUserId = null) {
   const shared = { ...options, scopeOwnerUserId };
@@ -16,11 +16,12 @@ function buildRepositories(holder, options, scopeOwnerUserId = null) {
 }
 
 export function createInMemoryEntityFoundation(options = {}) {
-  const holder = { state: createFoundationState() };
+  const holder = { state: options.initialState ? cloneFoundationState(options.initialState) : createFoundationState() };
   const repositories = buildRepositories(holder, options);
   const unitOfWork = new InMemoryMemoryUnitOfWork(
     holder,
-    (draftHolder, ownerUserId) => buildRepositories(draftHolder, options, ownerUserId)
+    (draftHolder, ownerUserId) => buildRepositories(draftHolder, options, ownerUserId),
+    { beforeCommit: options.beforeCommit }
   );
   return Object.freeze({ ...repositories, unitOfWork });
 }

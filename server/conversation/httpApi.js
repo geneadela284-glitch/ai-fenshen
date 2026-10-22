@@ -216,6 +216,7 @@ export async function handleConversationApi({
       attachmentIds: body.attachmentIds,
       meetingQuery: body.meetingQuery,
       documentQuery: body.documentQuery,
+      localMemory: body.localMemory,
       requestId,
       invocation: { subject, requestLease }
     });
@@ -224,6 +225,7 @@ export async function handleConversationApi({
       try { accessControl.releaseRequest(requestLease); } catch { /* The original error remains authoritative. */ }
     }
     if (PUBLIC_MESSAGES[error?.code]) sendAccessError(res, error, boundSendJson);
+    else if (['REQUEST_CONTENT_CONFLICT','LOCAL_MEMORY_CONTEXT_INVALID'].includes(error?.code)) boundSendJson(res, 409, {ok:false,code:error.code,message:'请求内容已变化，请重新发送。'});
     else if (String(error?.code || '').startsWith('DOCUMENT_')) boundSendJson(res, 400, { ok: false, code: error.code, message: '文件引用不可用，请重新选择文件。' });
     else if (error?.code === 'CONVERSATION_NOT_FOUND') boundSendJson(res, 404, { ok: false, message: '对话不存在。' });
     else boundSendJson(res, 400, { ok: false, message: '请求无效。' });
@@ -249,7 +251,8 @@ export async function handleConversationApi({
   try {
     const result = await runtime.service.execute(prepared, {
       signal: disconnect.signal,
-      onDelta: (text) => writeSse(res, 'delta', { requestId: prepared.requestId, text })
+      onDelta: (text) => writeSse(res, 'delta', { requestId: prepared.requestId, text }),
+      onAttachmentProgress: ({ stage, completedImages, totalImages }) => writeSse(res, 'attachment_progress', { requestId: prepared.requestId, stage, completedImages, totalImages })
     });
     if (result.status === 'completed') {
       writeSse(res, 'completed', {

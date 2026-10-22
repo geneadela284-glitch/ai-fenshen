@@ -11,6 +11,9 @@ export class ActiveRequestRegistry {
 
   register(entry) {
     if (this.active.has(entry.requestId)) throw new Error('REQUEST_ALREADY_ACTIVE');
+    for (const previous of this.active.values()) {
+      if (previous.ownerId === entry.ownerId && previous.conversationId === entry.conversationId && !previous.controller.signal.aborted) previous.controller.abort('superseded_by_new_input');
+    }
     this.active.set(entry.requestId, entry);
     return entry;
   }

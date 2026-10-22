@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { fetchCurrentSession, loginSession, logout } from './authClient.js';
+import * as authClient from './authClient.js';
+
+const { clearNativeSessionCookie, fetchCurrentSession, loginSession, logout, logoutAndClearNativeSession } = authClient;
 
 test('voice entry is enabled only by a boolean server authorization flag', async () => {
   const previousFetch = globalThis.fetch;
@@ -49,6 +51,32 @@ test('authenticated session fails closed for missing or non-boolean Finance flag
   }
 });
 
+test('only an explicit 401 makes session bootstrap unauthenticated', async () => {
+  const previousFetch = globalThis.fetch;
+  try {
+    globalThis.fetch = async () => ({ ok: false, status: 401 });
+    assert.deepEqual(await fetchCurrentSession(), {
+      user: null,
+      featureFlags: { financeF201Enabled: false }
+    });
+
+    globalThis.fetch = async () => ({ ok: false, status: 503 });
+    await assert.rejects(fetchCurrentSession(), (error) => error?.code === 'AUTH_SESSION_UNAVAILABLE');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
+test('network failure during session bootstrap remains recoverable instead of looking logged out', async () => {
+  const previousFetch = globalThis.fetch;
+  globalThis.fetch = async () => { throw new TypeError('network down'); };
+  try {
+    await assert.rejects(fetchCurrentSession(), (error) => error?.code === 'AUTH_SESSION_UNAVAILABLE');
+  } finally {
+    globalThis.fetch = previousFetch;
+  }
+});
+
 test('logout uses the real cookie session endpoint', async () => {
   const previousFetch = globalThis.fetch;
   const calls = [];
@@ -74,5 +102,45 @@ test('logout does not report success when the server session was not invalidated
     await assert.rejects(logout(), /退出失败/);
   } finally {
     globalThis.fetch = previousFetch;
+  }
+});
+
+test('native logout uses the MobileTransport proxy exposed by the real Capacitor bootstrap', async () => {
+  const previousCapacitor = globalThis.Capacitor;
+  const calls = [];
+  globalThis.Capacitor = {
+    isNativePlatform: () => true,
+    Plugins: {
+      MobileTransport: {
+        clearSessionCookie: async () => {
+          calls.push('clearSessionCookie');
+          return { cleared: true };
+        }
+      }
+    }
+  };
+  try {
+    await clearNativeSessionCookie();
+    assert.deepEqual(calls, ['clearSessionCookie']);
+  } finally {
+    globalThis.Capacitor = previousCapacitor;
+  }
+});
+
+test('logout remains unsuccessful when local native session cleanup fails after server logout', async () => {
+  const previousFetch = globalThis.fetch;
+  const previousCapacitor = globalThis.Capacitor;
+  globalThis.fetch = async () => ({ ok: true });
+  globalThis.Capacitor = {
+    isNativePlatform: () => true,
+    Plugins: {
+      MobileTransport: { clearSessionCookie: async () => { throw new Error('native cleanup failed'); } }
+    }
+  };
+  try {
+    await assert.rejects(logoutAndClearNativeSession(), (error) => error?.code === 'MOBILE_SESSION_CLEAR_FAILED');
+  } finally {
+    globalThis.fetch = previousFetch;
+    globalThis.Capacitor = previousCapacitor;
   }
 });

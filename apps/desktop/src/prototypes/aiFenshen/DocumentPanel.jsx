@@ -1,25 +1,33 @@
-import { useContext, useEffect, useRef, useState } from 'react';
+import { useContext, useState } from 'react';
 import { DocumentQaContext, documentErrorText } from './useDocumentQa.js';
 import Icon from './Icon.jsx';
 const button={border:'1px solid var(--af-text-muted, #798da8)',borderRadius:10,padding:'8px 10px',background:'transparent',color:'inherit',minHeight:40,cursor:'pointer',fontSize:12};
 const panel={color:'var(--af-text-primary,#ecf2ff)',background:'var(--af-surface,#172438)',border:'1px solid var(--af-text-muted,#798da8)',borderRadius:14,padding:12,fontSize:13,lineHeight:1.5,marginBottom:8,maxHeight:'min(230px, 34dvh)',overflowY:'auto',overflowWrap:'anywhere'};
 export function DocumentAttachmentMenu({onSelectImages,onAttach,imageDisabled=false}){
-  const qa=useContext(DocumentQaContext);const [open,setOpen]=useState(false);const wrapRef=useRef(null);
-  useEffect(()=>{
-    if(!open)return undefined;
-    const closeOnOutsidePointer=(event)=>{if(!wrapRef.current?.contains(event.target))setOpen(false);};
-    document.addEventListener('pointerdown',closeOnOutsidePointer,true);
-    return()=>document.removeEventListener('pointerdown',closeOnOutsidePointer,true);
-  },[open]);
+  const qa=useContext(DocumentQaContext);
+  const [selectionError,setSelectionError]=useState('');
   if(!qa?.available)return null;
-  return <div className="af-attach-wrap" ref={wrapRef}>
-    <button className="af-composer-button" type="button" aria-label="添加附件" aria-expanded={open} onClick={()=>setOpen(v=>!v)}><Icon name="paperclip" size={22}/></button>
-    {open?<div role="group" aria-label="选择附件" style={{...panel,position:'absolute',bottom:'100%',left:0,width:220,zIndex:50,display:'grid',gap:8}}>
-      <label style={{...button,position:'relative'}}>图片<input style={{position:'absolute',inset:0,opacity:0,width:'100%',cursor:'pointer'}} type="file" accept="image/jpeg,image/png,image/webp,image/heic,image/heif" multiple aria-label="添加图片" onClick={e=>{if(imageDisabled||qa.state.document||qa.state.state==='parsing'||onAttach?.('image')===false){e.preventDefault();}}} onChange={e=>{const files=[...e.target.files];e.target.value='';setOpen(false);if(files.length)onSelectImages?.(files);}}/></label>
-      <label style={{...button,position:'relative'}}>文件（PDF / DOCX）<input style={{position:'absolute',inset:0,opacity:0,width:'100%',cursor:'pointer'}} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" aria-label="选择文件" onClick={e=>{if(!qa.enabled||onAttach?.('file')===false)e.preventDefault();}} onChange={e=>{const file=e.target.files?.[0];e.target.value='';setOpen(false);if(file)void qa.select(file);}}/></label>
-      <button type="button" style={button} onClick={()=>{setOpen(false);qa.openLibrary();}}>已保存资料</button>
-      <button type="button" style={button} onClick={()=>setOpen(false)}>收起</button>
-    </div>:null}
+  const selectFiles=(event)=>{
+    const files=Array.from(event.currentTarget.files||[]);
+    event.currentTarget.value='';
+    setSelectionError('');
+    if(!files.length||imageDisabled)return;
+    const images=files.filter(file=>/^image\//i.test(file.type)||/\.(jpe?g|png|webp|heic|heif)$/i.test(file.name));
+    if(images.length===files.length){
+      if(onAttach?.('image')===false)return;
+      if(qa.state.document||qa.state.state==='parsing')return;
+      onSelectImages?.(files);
+      return;
+    }
+    if(files.length!==1){setSelectionError('请一次选择一份文档，或只选择照片。');return;}
+    if(!qa.enabled){setSelectionError('文件功能当前未启用。');return;}
+    if(onAttach?.('file')===false)return;
+    void qa.select(files[0]);
+  };
+  return <div className="af-attach-wrap">
+    <span className="af-composer-button" aria-hidden="true"><Icon name="paperclip" size={22}/></span>
+    <input className="af-attachment-input" type="file" accept="image/*,.pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document" multiple aria-label="添加附件" disabled={imageDisabled} onChange={selectFiles} onCancel={event=>{event.currentTarget.value='';}}/>
+    {selectionError?<span role="alert" style={{...panel,position:'absolute',bottom:'100%',left:0,width:220,zIndex:50}}>{selectionError}</span>:null}
   </div>;
 }
 export default function DocumentPanel({busy=false}){

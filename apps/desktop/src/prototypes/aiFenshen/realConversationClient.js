@@ -130,7 +130,7 @@ export function createRealConversationClient({
       return requestJson(`/api/ai/chat/requests/${encodeURIComponent(requestId)}/cancel`, { method: 'POST' });
     },
     async streamMessage({ conversationId = null, message, clientRequestId = idFactory(), retry = false,
-      timezone = null, attachmentIds = [], meetingQuery = null, documentQuery = null, signal, onEvent = () => {} }) {
+      timezone = null, attachmentIds = [], meetingQuery = null, documentQuery = null, localMemory = null, signal, onEvent = () => {} }) {
       const expected = currentExpectedAccountId();
       const response = await fetchImpl('/api/ai/chat/stream', bindExpectedAccount({
         method: 'POST',
@@ -144,6 +144,7 @@ export function createRealConversationClient({
           ...(timezone ? { timezone: String(timezone) } : {}),
           ...(meetingQuery ? { meetingQuery } : {}),
           ...(documentQuery ? { documentQuery } : {}),
+          ...(localMemory ? { localMemory } : {}),
           ...(attachmentIds.length
             ? { attachmentIds: [...new Set(attachmentIds.map(String))] }
             : {})

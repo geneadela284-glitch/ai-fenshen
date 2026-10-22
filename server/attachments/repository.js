@@ -766,6 +766,19 @@ export class AttachmentRepository {
     } : null;
   }
 
+  getLatestOcrForOwnerAttachment(userId, conversationId, attachmentId) {
+    const row = this.database.prepare(`
+      SELECT o.processing_id FROM attachment_ocr_results o
+      JOIN attachment_processing_jobs j ON j.processing_id = o.processing_id
+      JOIN attachments a ON a.attachment_id = o.attachment_id
+      WHERE j.user_id = ? AND j.conversation_id = ? AND a.user_id = j.user_id
+        AND a.conversation_id = j.conversation_id AND a.attachment_id = ?
+        AND COALESCE(a.processing_state_v2,a.processing_state) NOT IN ('expired','deleted')
+      ORDER BY o.created_at DESC LIMIT 1
+    `).get(userId, conversationId, attachmentId);
+    return row ? this.getOcrResult(row.processing_id, attachmentId) : null;
+  }
+
   listOcrResults(processingId) {
     return this.listProcessingItems(processingId).flatMap(({ attachmentId }) => {
       const result = this.getOcrResult(processingId, attachmentId);

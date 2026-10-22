@@ -99,3 +99,15 @@ test('removal and release revoke every local object URL exactly once', async () 
   });
   assert.deepEqual(revoked, ['blob:one.png', 'blob:two.png']);
 });
+
+test('changing failed upload selection resets shared request identity while an unchanged retry retains it', async () => {
+ const file=new File(['one'],'one.png',{type:'image/png',lastModified:1});
+ const first=await addSelectedImages([], [file], {createObjectURL:()=> 'blob:one',idFactory:()=> 'one'});
+ const failed=first.items.map(item=>({...item,status:'failed',clientRequestId:'old-upload'}));
+ const same=await addSelectedImages(failed,[file],{createObjectURL:()=> 'blob:unused'});
+ assert.equal(same.items[0].clientRequestId,'old-upload');
+ const changed=await addSelectedImages(failed,[new File(['two'],'two.png',{type:'image/png',lastModified:2})],{createObjectURL:()=> 'blob:two',idFactory:()=> 'two'});
+ assert.equal(changed.items.some(item=>item.clientRequestId),false);
+ const removed=removeSelectedImage(changed.items.map(item=>({...item,clientRequestId:'next-upload'})),'two',{revokeObjectURL:()=>{}});
+ assert.equal(removed[0].clientRequestId,undefined);
+});

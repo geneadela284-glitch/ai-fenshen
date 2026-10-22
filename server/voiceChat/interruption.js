@@ -16,3 +16,9 @@ export function receiveSpeechCandidate(session,body,now){
  session.lastCandidateSequence=body.candidateSequence;
  session.speechCandidate={turnId:body.turnId,inputEpoch:body.inputEpoch,durationMs:body.durationMs,peakRms:body.peakRms,receivedAt:now};
 }
+
+// These commands only control an answer. They never confirm a business action.
+export const isStopRequest=text=>/^(?:停|停下|停一下|停止|别说了|等一下|等会|等等|打断一下|我来说)$/.test(normalizedSpeech(text));
+export const isReplyContinuation=text=>/^(?:继续|接着说|继续说|继续讲|接着讲|继续刚才的回答|继续刚才的话题|接着刚才说|刚才没说完|你刚才没说完|刚才没听清|再说一遍)$/.test(normalizedSpeech(text));
+export const REPLY_RECOVERY_TTL_MS=5*60*1000;
+export const MAX_RECOVERABLE_ANSWER_CHARS=8000;

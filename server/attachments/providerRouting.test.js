@@ -186,3 +186,14 @@ test('RED: Qwen coordinate OCR output is grouped into stable table rows without 
   assert.match(result.rawText, /餐费/);
   assert.match(result.rawText, /打车/);
 });
+
+test('OCR uses the documented text-recognition task and preserves receipt evidence without repairing malformed coordinates', async () => {
+  const raw='内部模拟票据\n茶杯 2件 单价 ¥12.50\n笔记本 1本 单价 ¥39.50\n合计 ¥64.50';
+  const executor=new AttachmentProviderExecutor({aiService:{async runExactCapability(task){
+    const instruction=task.messages[0].content.find(part=>part.type==='text').text;
+    assert.equal(instruction,'Please output only the text content from the image without any additional descriptions or formatting.');
+    return {ok:true,content:raw};
+  }}});
+  const result=await executor.runOcr({attachment:{attachmentId:'receipt',mimeType:'image/png'},buffer:Buffer.from('synthetic fixture'),trace:{}});
+  assert.equal(result.rawText,raw);assert.equal(result.normalizedText,raw);assert.deepEqual(result.tableRegions,[]);
+});

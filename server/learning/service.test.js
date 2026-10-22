@@ -134,23 +134,6 @@ test('teaching review supplies grounded correction and progress without replacin
  let v=s.start('a',{...start,lessonId:'restaurant'});v=await s.turn('a',v.session.id,{revision:1,clientTurnId:'reviewed',transcript:'Does these noodles contain meat?'});
  assert.equal(calls.length,2);assert.equal(v.teacher.replyEn,'They do not contain meat.');assert.equal(v.teacher.feedback[0].suggestion,'Do these');assert.equal(v.teacher.goalReached,true);
 });
-test('scenario response and teaching review start together instead of adding their network waits',async t=>{
- const started=[];let releaseRole,releaseReview;
- const role=new Promise(resolve=>{releaseRole=resolve;});
- const review=new Promise(resolve=>{releaseReview=resolve;});
- const s=setup(t,{async run(task){const isReview=task.metadata?.stage==='learning_assessment';started.push(isReview?'review':'role');return isReview?review:role;}});
- const v=s.start('a',{...start,lessonId:'coffee'});
- const pending=s.turn('a',v.session.id,{revision:1,clientTurnId:'parallel',transcript:'A small coffee, please.'});
- await new Promise(resolve=>setImmediate(resolve));
- const startedBeforeRelease=[...started];
- releaseRole({ok:true,content:JSON.stringify({replyEn:'Here you are.',helpZh:'给你。',feedback:[],goalReached:false})});
- await new Promise(resolve=>setImmediate(resolve));
- releaseReview({ok:true,content:JSON.stringify({replyEn:'Checked.',helpZh:'已检查。',feedback:[],goalReached:true})});
- const result=await pending;
- assert.deepEqual(startedBeforeRelease.sort(),['review','role']);
- assert.equal(result.teacher.replyEn,'Here you are.');
- assert.equal(result.teacher.goalReached,true);
-});
 test('a failed teaching review cannot save an unverified turn or claim completion',async t=>{
  const s=setup(t,{async run(task){return task.metadata?.stage==='learning_assessment'?{ok:false}:{ok:true,content:JSON.stringify({replyEn:'Certainly.',helpZh:'当然。',feedback:[],goalReached:true})};}});
  const v=s.start('a',{...start,lessonId:'coffee'});await assert.rejects(s.turn('a',v.session.id,{revision:1,clientTurnId:'failed-review',transcript:'A small coffee, please.'}),{code:'LEARNING_TEACHER_UNAVAILABLE'});assert.equal(s.view('a',v.session.id).turns.length,0);

@@ -235,11 +235,11 @@ export function resolveBetaServerConfig({ env = process.env, projectRoot = proce
     financeDb,
     financeF201Enabled,
     tasksDb,
+    learningRealtimeEnabled: enabledFlag(env, 'AI_FENSHEN_LEARNING_REALTIME_ENABLED'),
     learningSpeechEnabled: enabledFlag(env, 'AI_FENSHEN_LEARNING_SPEECH_ENABLED'),
     learningEnabled: enabledFlag(env, 'AI_FENSHEN_LEARNING_ENABLED'),
     voiceChatEnabled: enabledFlag(env, 'AI_FENSHEN_VOICE_CHAT_ENABLED'),
     voiceCoreOptions: {
-      continuousLifecycle: enabledFlag(env, 'AI_VOICE_CONTINUOUS_LIFECYCLE_ENABLED'),
       lowLatency: enabledFlag(env, 'AI_FENSHEN_VOICE_LOW_LATENCY'),
       ordinaryChat: enabledFlag(env, 'AI_FENSHEN_VOICE_ORDINARY_CHAT'),
       conservativeInterruption: enabledFlag(env, 'AI_FENSHEN_VOICE_CONSERVATIVE_INTERRUPTION')

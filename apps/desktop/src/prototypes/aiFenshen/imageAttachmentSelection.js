@@ -156,7 +156,7 @@ export async function addSelectedImages(current = [], files = [], {
       errors.push(error?.code ? error : codedError('UNSUPPORTED_FILE_TYPE'));
     }
   }
-  return { items, errors };
+  return { items: items.length === current.length ? items : items.map(({ clientRequestId, ...item }) => item), errors };
 }
 
 export function removeSelectedImage(items = [], id, {
@@ -164,7 +164,8 @@ export function removeSelectedImage(items = [], id, {
 } = {}) {
   const removed = items.find((item) => item.id === id);
   if (removed?.previewUrl?.startsWith?.('blob:')) revokeObjectURL(removed.previewUrl);
-  return items.filter((item) => item.id !== id);
+  if (!removed) return items;
+  return items.filter((item) => item.id !== id).map(({ clientRequestId, ...item }) => item);
 }
 
 export function releaseAttachmentPreviews(items = [], {

@@ -19,6 +19,9 @@ const labels = {
   timeout: '语音转写超时，点击重试',
   busy: '语音转写繁忙，点击重试',
   transcription_failed: '语音转写失败，点击重试',
+  service_unavailable: '语音识别服务暂时不可用',
+  account_unavailable: '当前账号暂时无法使用语音识别',
+  no_speech: '没有听到有效语音，点击重试',
   cancelled: '语音输入已取消，点击重试'
 };
 
@@ -136,7 +139,7 @@ export default function VoiceInputMock({
   }
 
   const ready = state === 'draft_ready';
-  const failure = ['permission_denied', 'recording_failed', 'audio_invalid', 'timeout', 'busy', 'transcription_failed'].includes(state);
+  const failure = ['permission_denied', 'recording_failed', 'audio_invalid', 'timeout', 'busy', 'transcription_failed', 'service_unavailable', 'account_unavailable', 'no_speech'].includes(state);
   return (
     <m.button
       type="button"

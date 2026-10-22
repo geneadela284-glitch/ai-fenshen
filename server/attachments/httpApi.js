@@ -2,6 +2,7 @@ import {
   attachmentError
 } from './contract.js';
 import { parseMultipartUpload } from './multipart.js';
+import { createImagePreview } from './imagePreview.js';
 
 const PUBLIC_MESSAGES = Object.freeze({
   UPLOAD_FAILED: '附件上传失败，请重试。',
@@ -61,7 +62,8 @@ export async function handleAttachmentsApi({
   accessControl,
   runtime,
   enabled = false,
-  sendJson
+  sendJson,
+  createPreview = createImagePreview
 } = {}) {
   if (!url.pathname.startsWith('/api/attachments')) return false;
   if (!user || !subject) {
@@ -78,6 +80,8 @@ export async function handleAttachmentsApi({
       enabled: enabled === true,
       supportedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
       limits: {
+        dailyUploadBytes: enabled === true && runtime?.service?.dailyUploadLimit?.(user.id) === Infinity
+          ? null : Number(runtime?.limits?.dailyUploadBytes || 32 * 1024 * 1024),
         maxFileBytes: Number(runtime?.limits?.maxFileBytes || 8 * 1024 * 1024),
         maxAttachmentsPerMessage: Number(runtime?.limits?.maxAttachmentsPerMessage || 3)
       }
@@ -154,9 +158,11 @@ export async function handleAttachmentsApi({
         user.id,
         decodeURIComponent(contentMatch[1])
       );
-      const buffer = runtime.storage.readObject(attachment.storageReference);
+      const original = runtime.storage.readObject(attachment.storageReference);
+      const preview = url.searchParams.get('preview') === '1';
+      const buffer = preview ? await createPreview(original) : original;
       res.writeHead(200, {
-        'Content-Type': attachment.mimeType,
+        'Content-Type': preview ? 'image/jpeg' : attachment.mimeType,
         'Content-Length': String(buffer.length),
         'Cache-Control': 'private, no-store',
         'X-Content-Type-Options': 'nosniff',

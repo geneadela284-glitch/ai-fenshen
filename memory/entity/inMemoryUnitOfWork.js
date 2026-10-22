@@ -6,10 +6,11 @@ import {
 } from './inMemoryFoundationState.js';
 
 export class InMemoryMemoryUnitOfWork {
-  constructor(holder, buildRepositories) {
+  constructor(holder, buildRepositories, { beforeCommit = null } = {}) {
     this.holder = holder;
     this.buildRepositories = buildRepositories;
     this.tail = Promise.resolve();
+    this.beforeCommit = beforeCommit;
   }
 
   run(context, work) {
@@ -46,6 +47,9 @@ export class InMemoryMemoryUnitOfWork {
       throw new EntityFoundationError('UNIT_OF_WORK_CONFLICT', 'Foundation changed while Unit of Work was running.');
     }
     if (replayKey) draftHolder.state.unitOfWorkIdempotency.set(replayKey, immutableCopy(result));
+    // The platform adapter must durably commit before the state or success
+    // receipt becomes visible. A failed commit leaves the old state intact.
+    if (this.beforeCommit) await this.beforeCommit(cloneFoundationState(draftHolder.state));
     this.holder.state = draftHolder.state;
     return immutableCopy(result);
   }

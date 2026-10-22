@@ -11,3 +11,33 @@
 @media(prefers-reduced-motion:reduce){.al-celebration,.al-thinking{animation:none}.al-route i{transition:none}}
 .al-translation-open{align-self:flex-start;min-height:36px;border:0;border-radius:9px;background:#edf0e3;padding:5px 12px;font-size:12px}
 .al-default-notice{font-size:11px;line-height:1.6;color:#687a65;margin:12px 0!important}.al-reward-layer{position:absolute;inset:0;z-index:3;border-radius:inherit;background:radial-gradient(ellipse at 50% 15%,#fff1b8,#f1f4e5 75%);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:12px;text-align:center;padding:20px;overflow:hidden;animation:al-reward-enter .28s ease-out}.al-reward-layer.is-encouraging{background:#edf2e7}.al-reward-flowers{font-size:42px;letter-spacing:10px;animation:al-flower-sway 1s ease-in-out infinite alternate}.al-reward-kicker{font-size:12px;color:#677450;letter-spacing:.1em}.al-reward-score{font-size:76px;font-weight:750;color:#2c6245;line-height:1;animation:al-score-arrive .65s cubic-bezier(.2,.8,.3,1.3)}.al-reward-score small{font-size:17px;color:#7d8967;margin-left:4px}.al-reward-symbol{font-size:64px;line-height:1;color:#a28135}.al-reward-layer h2{font-size:23px;line-height:1.4}.al-reward-layer p{font-size:13px;line-height:1.6;color:#617755}.al-reward-layer>small{font-size:10px;color:#7a876d}.al-reward-layer button{background:#fffc;border:1px solid #cbd8b8;border-radius:12px;min-height:44px;padding:9px 20px;font-size:13px}.al-reward-time{position:absolute;bottom:0;left:0;height:4px;width:100%;background:#a1b977;transform-origin:left;animation:al-reward-time linear forwards}@keyframes al-reward-time{to{transform:scaleX(0)}}@keyframes al-score-arrive{from{opacity:0;transform:translateY(12px) scale(.65)}to{opacity:1;transform:translateY(0) scale(1)}}@keyframes al-flower-sway{to{transform:translateY(-5px) rotate(3deg)}}@keyframes al-reward-enter{from{opacity:0;transform:scale(.95)}to{opacity:1;transform:scale(1)}}@media(max-height:740px){.al-reward-layer{gap:7px;padding:12px}.al-reward-flowers{font-size:29px}.al-reward-score{font-size:54px}.al-reward-symbol{font-size:42px}.al-reward-layer h2{font-size:19px}}@media(max-height:570px){.al-reward-layer{gap:3px}.al-reward-flowers{display:none}.al-reward-score{font-size:40px}.al-reward-symbol{font-size:30px}.al-reward-layer p{font-size:11px}}@media(prefers-reduced-motion:reduce){.al-reward-layer,.al-reward-flowers,.al-reward-score,.al-reward-time{animation:none}}
+/* Learning experience 2026-09-27: stable thumb controls and interruptible feedback. */
+.al-core-controls{display:grid;grid-template-columns:1fr 1.25fr 1fr;gap:9px;width:100%;max-width:480px;justify-self:center}
+.al-core-controls>button{min-height:76px;min-width:0;border:1px solid #cbd8cb;border-radius:19px;background:#fffaf0;font-size:15px!important;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;padding:9px 4px;color:#284f41}
+.al-core-controls>button>span{font-size:23px;line-height:1.1}
+.al-core-controls>.al-mic{background:#355c48;min-height:76px;width:100%;font-size:17px!important;padding:9px 4px;box-shadow:none}
+.al-core-controls>.al-mic.is-recording{background:#a8563d}
+.al-secondary-controls{display:flex;justify-content:center;gap:20px;min-height:44px}
+.al-secondary-controls button{min-height:44px;min-width:88px;border:0;background:none;color:#596e60;font-size:12px}
+.al-dialogue{flex:1;min-height:0;display:flex;flex-direction:column;gap:10px;overflow:auto;overscroll-behavior:contain;animation:al-dialogue-enter 180ms ease-out}
+.al-dialogue .al-line{flex:1 0 auto;min-height:min-content;padding:8px 0}
+.al-scenario-cue{font-size:12px;line-height:1.6;color:#6d6249;background:#f2ebda;padding:8px 10px;border-radius:10px}
+.al-coffee-scene{background:radial-gradient(ellipse at top right,#e7ceb555,transparent 65%),#fffcf6}
+.al-hint-inline{border-radius:12px;background:#eaf0e3;padding:10px;font-size:13px;display:grid;gap:6px}
+.al-hint-inline>div{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.al-hint-inline button{min-width:44px;min-height:44px;background:none;border:0;color:#355c48}
+.al-hint-inline p{font-size:20px;line-height:1.4;overflow-wrap:anywhere}
+.al-round-feedback strong{font-size:15px;line-height:1.5}.al-round-feedback small{font-size:12px;line-height:1.5}
+.al-stage-message{min-height:44px;max-height:90px;font-size:12px}.al-stage-message button{min-height:44px;min-width:44px}
+.al-panel-content select{min-height:44px;padding:8px;border:1px solid #cbd8cb;border-radius:10px;background:#fff}
+.al-panel-scrim{animation:al-panel-fade 140ms ease-out}.al-panel{animation:al-panel-rise 180ms ease-out}
+.al-line-pages button,.al-translation-open{min-height:44px}
+@keyframes al-dialogue-enter{from{opacity:.6;transform:translateY(4px)}to{opacity:1;transform:none}}
+@keyframes al-panel-fade{from{opacity:0}to{opacity:1}}
+@keyframes al-panel-rise{from{transform:translateY(10px)}to{transform:none}}
+@media(max-height:650px){.al-stage{gap:4px}.al-scene{padding:10px}.al-core-controls>button,.al-core-controls>.al-mic{min-height:64px}.al-scenario-cue{padding:5px 8px}.al-dialogue{gap:6px}.al-scene-top{display:flex}.al-line>p:first-child{font-size:21px}.al-secondary-controls{gap:12px}}
+@media(prefers-reduced-motion:reduce){.al-dialogue,.al-panel,.al-panel-scrim{animation:none}.al-core-controls>button{transition:none}}
+
+.al-order-note{border:1px dashed #cbb997;border-radius:12px;padding:10px 12px;display:grid;gap:5px;background:#fffdf6;font-size:12px;color:#786846;flex-shrink:0}.al-order-note q{font-size:15px;line-height:1.4;color:#314b3d;overflow-wrap:anywhere}.al-order-note small{font-size:11px}
+
+.al-realtime-notice{font-size:11px;line-height:1.4;color:#516451;margin:0;flex-shrink:0}

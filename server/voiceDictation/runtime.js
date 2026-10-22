@@ -165,7 +165,9 @@ function defaultModuleLoader(url) {
 function normalizeSharedError(error) {
   const code = String(error?.code || '');
   let normalized;
-  if (code === 'ASR_BUSY') normalized = voiceError('ASR_BUSY');
+  if (['ERR_MODULE_NOT_FOUND', 'MODULE_NOT_FOUND'].includes(code)) normalized = voiceError('ASR_ENGINE_UNAVAILABLE');
+  else if (['AUDIO_NO_SPEECH', 'ACCOUNT_CONTEXT_MISMATCH', 'ACCOUNT_ACCESS_DISABLED', 'ACCOUNT_QUOTA_NOT_CONFIGURED', 'ACCOUNT_REQUEST_RATE_LIMITED', 'ACCOUNT_CONCURRENCY_LIMITED', 'ACCOUNT_USAGE_LIMIT_REACHED', 'ACCESS_CONTROL_UNAVAILABLE'].includes(code)) normalized = voiceError(code);
+  else if (code === 'ASR_BUSY') normalized = voiceError('ASR_BUSY');
   else if (code === 'TRANSCRIPTION_TIMEOUT' || code === 'TIMEOUT') normalized = voiceError('TIMEOUT');
   else if (code === 'AUDIO_TOO_LARGE') normalized = voiceError('AUDIO_TOO_LARGE');
   else if (code === 'AUDIO_TOO_LONG') normalized = voiceError('AUDIO_TOO_LONG');
@@ -320,7 +322,7 @@ async function transcribeWithSharedModule({ moduleLoader, request, requestDirect
   });
 }
 
-function normalizeResult(raw, request, startedAt) {
+function normalizeResult(raw, request, startedAt, providerId) {
   const transcript = String(raw?.transcript || '').trim();
   if (!transcript) throw voiceError('TRANSCRIPTION_FAILED');
   return {
@@ -328,7 +330,7 @@ function normalizeResult(raw, request, startedAt) {
     transcript,
     durationMs: request.durationMs,
     latencyMs: Math.max(0, Math.round(performance.now() - startedAt)),
-    providerId: DICTATION_PROVIDER_ID,
+    providerId,
     cleanupStatus: 'cleaned',
     autoSend: false,
     errorCode: null
@@ -339,6 +341,7 @@ export function createVoiceDictationRuntime({
   moduleLoader = defaultModuleLoader,
   tempRoot = path.join(os.tmpdir(), 'ai-fenshen-dictation'),
   transcribeImpl = null,
+  providerId = DICTATION_PROVIDER_ID,
   maxQueueDepth = DICTATION_LIMITS.maxQueueDepth,
   clock = () => Date.now(),
   logger = getDictationDiagnosticLogger()
@@ -382,6 +385,7 @@ export function createVoiceDictationRuntime({
           try {
             const result = await transcribeImpl({
               request: job.request,
+              invocation: job.invocation,
               requestDirectory: paths.requestDirectory,
               signal: job.signal
             });
@@ -472,7 +476,7 @@ export function createVoiceDictationRuntime({
     }
     let result;
     try {
-      result = normalizeResult(rawResult, job.request, startedAt);
+      result = normalizeResult(rawResult, job.request, startedAt, providerId);
     } catch (error) {
       error.cleanupStatus = cleanupStatus;
       error.latencyMs = Math.max(0, Math.round(performance.now() - startedAt));
@@ -513,7 +517,7 @@ export function createVoiceDictationRuntime({
     }
   }
 
-  function transcribe(input) {
+  function transcribe(input, invocation = {}) {
     if (closed) return Promise.reject(voiceError('TRANSCRIPTION_FAILED'));
     let request;
     try {
@@ -540,6 +544,7 @@ export function createVoiceDictationRuntime({
     const job = {
       key,
       request,
+      invocation,
       active: false,
       cancelled: false,
       settled: false,

@@ -597,3 +597,18 @@
 @media (prefers-reduced-motion: reduce) {
   .meeting-analysis__progress--running .meeting-analysis__progress-track > span { animation: none; }
 }
+
+/* Prioritize the usable brief; retain every original section and handler. */
+.meeting-v1-app-shell--light .meeting-analysis--conversation { display: flex; flex-direction: column; gap: 18px; }
+.meeting-v1-app-shell--light .meeting-analysis__assistant-message { display: none; }
+.meeting-v1-app-shell--light .meeting-analysis__summary-grid { order: 2; }
+.meeting-v1-app-shell--light .meeting-analysis__section { order: 5; }
+.meeting-v1-app-shell--light [data-testid="meeting-decisions-section"] { order: 3; }
+.meeting-v1-app-shell--light [data-testid="meeting-action-items-section"] { order: 4; }
+.meeting-v1-app-shell--light .meeting-analysis__refinement { order: 6; }
+.meeting-v1-app-shell--light .meeting-analysis__export-action,
+.meeting-v1-app-shell--light .meeting-analysis__secondary-action,
+.meeting-v1-app-shell--light .meeting-analysis__status { color: #234e4c; background: #edf5f1; border-color: #c5d9d0; min-height: 44px; }
+.meeting-v1-app-shell--light .meeting-analysis__evidence-button { color: #24584e; background: #f0f6f3; border-color: #c8ded4; min-height: 44px; }
+
+.meeting-v1-app-shell--light .meeting-analysis--conversation .meeting-analysis__progress:not(.meeting-analysis__progress--running) { display: none; }

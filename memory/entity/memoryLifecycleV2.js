@@ -1,6 +1,6 @@
 import crypto from 'node:crypto';
 
-import { ENTITY_ID_PATTERN, PREDICATE_STRUCTURED_VALUE_SCHEMAS } from './contracts.js';
+import { ENTITY_ID_PATTERN, PREDICATE_STRUCTURED_VALUE_SCHEMAS, MEMORY_V2_SENSITIVITIES } from './contracts.js';
 import { createMemoryRecordV2 } from './kernel.js';
 import { EntityFoundationError, immutableCopy } from './inMemoryFoundationState.js';
 
@@ -186,13 +186,17 @@ function transitionRecord(current, changes, action, occurredAt) {
   }, { trustedOwnerUserId: current.ownerUserId });
 }
 
-function correctedRecord(current, command, memoryId, occurredAt) {
+function correctedRecord(current, command, memoryId, occurredAt, correctionSensitivity) {
+  const assessed = correctionSensitivity(immutableCopy(current), immutableCopy(command));
+  if (!MEMORY_V2_SENSITIVITIES.includes(assessed)) fail('SENSITIVITY_INVALID', 'Correction sensitivity must be governed.');
+  const sensitivity = MEMORY_V2_SENSITIVITIES[Math.max(MEMORY_V2_SENSITIVITIES.indexOf(current.sensitivity), MEMORY_V2_SENSITIVITIES.indexOf(assessed))];
   const sourceMessageId = nonEmptyString(command.sourceMessageId) ? command.sourceMessageId.trim() : null;
   return createMemoryRecordV2({
     ...structuredClone(current),
     memoryId,
     structuredValue: structuredClone(command.structuredValue),
     displayValue: null,
+    sensitivity,
     createdAt: occurredAt,
     updatedAt: occurredAt,
     effectiveFrom: occurredAt,
@@ -323,11 +327,12 @@ export function createMemoryLifecycleV2({
   foundation,
   now = () => new Date().toISOString(),
   memoryIdFactory,
-  faultInjector = () => {}
+  faultInjector = () => {},
+  correctionSensitivity = current => current.sensitivity
 } = {}) {
   if (!foundation?.unitOfWork || typeof foundation.unitOfWork.run !== 'function' ||
       typeof memoryIdFactory !== 'function' || typeof now !== 'function' ||
-      typeof faultInjector !== 'function') {
+      typeof faultInjector !== 'function' || typeof correctionSensitivity !== 'function') {
     throw new TypeError('Memory Lifecycle V2 requires Foundation Unit of Work, clock, ID factory, and fault injector.');
   }
 
@@ -380,7 +385,7 @@ export function createMemoryLifecycleV2({
           }, 'correction', occurredAt);
           memories.transition(ownerUserId, current.memoryId, previous, { expectedVersion: current.version });
           faultInjector('after_previous_superseded');
-          const replacement = correctedRecord(current, command, replacementId, occurredAt);
+          const replacement = correctedRecord(current, command, replacementId, occurredAt, correctionSensitivity);
           memories.create(ownerUserId, replacement);
           faultInjector('after_correction');
           const event = invalidation({

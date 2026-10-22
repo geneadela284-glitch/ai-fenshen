@@ -306,35 +306,6 @@ export class AccessControlStore {
     });
   }
 
-  hasVoiceStreamRequest({ accountId, requestId } = {}) {
-    return Boolean(this.database.prepare('SELECT 1 FROM request_leases WHERE account_id = ? AND request_id = ?')
-      .get(accountId, String(requestId || '').trim()));
-  }
-
-  renewVoiceStreamRequest({ accountId, requestId, expectedExpiresAt, now, leaseExpiresAt } = {}) {
-    return this.transaction(() => {
-      const account = this.database.prepare(`
-        SELECT a.enabled AS account_enabled, p.enabled AS profile_enabled, p.max_concurrent_requests
-        FROM account_access a JOIN quota_profiles p ON p.id = a.profile_id WHERE a.account_id = ?
-      `).get(accountId);
-      if (!account) throw codedAccessError('ACCOUNT_QUOTA_NOT_CONFIGURED');
-      if (account.account_enabled !== 1 || account.profile_enabled !== 1) throw codedAccessError('ACCOUNT_ACCESS_DISABLED');
-      const row = this.database.prepare('SELECT * FROM request_leases WHERE account_id = ? AND request_id = ?').get(accountId, requestId);
-      if (!row || row.completed_at !== null || row.lease_expires_at !== expectedExpiresAt ||
-          row.lease_expires_at <= now || !(Date.parse(leaseExpiresAt) > Date.parse(now))) {
-        throw codedAccessError('REQUEST_LEASE_INVALID');
-      }
-      const active = this.database.prepare(`SELECT COUNT(*) AS count FROM request_leases
-        WHERE account_id = ? AND completed_at IS NULL AND lease_expires_at > ?`).get(accountId, now).count;
-      if (active > account.max_concurrent_requests) throw codedAccessError('ACCOUNT_CONCURRENCY_LIMITED');
-      const changed = this.database.prepare(`UPDATE request_leases SET lease_expires_at = ?
-        WHERE account_id = ? AND request_id = ? AND completed_at IS NULL AND lease_expires_at = ? AND lease_expires_at > ?`)
-        .run(leaseExpiresAt, accountId, requestId, expectedExpiresAt, now);
-      if (changed.changes !== 1) throw codedAccessError('REQUEST_LEASE_INVALID');
-      return { ...row, lease_expires_at: leaseExpiresAt };
-    });
-  }
-
   releaseRequest({ accountId, requestId, completedAt = this.nowIso() } = {}) {
     const result = this.database.prepare(`
       UPDATE request_leases

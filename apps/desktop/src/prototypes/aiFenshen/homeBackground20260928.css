@@ -1,0 +1,53 @@
+/* Scoped user-supplied backgrounds. Preserve existing theme, navigation and data. */
+.af-prototype-canvas .af-home-hero-visual {
+  --af-avatar-asset: url('/prototype/ai-fenshen/home-night-20260928-original.jpg');
+  --af-home-logo-edit: url('/prototype/ai-fenshen/home-night-20260928-logo-edit.png');
+  --af-avatar-aspect-ratio: 590 / 1280;
+  --brain-center-x: 88.1356%;
+  --brain-center-y: 47.96875%;
+}
+[data-af-theme='day-sky'] .af-prototype-canvas .af-home-hero-visual {
+  --af-avatar-asset: url('/prototype/ai-fenshen/home-day-20260928-original.jpg');
+  --af-home-logo-edit: url('/prototype/ai-fenshen/home-day-20260928-logo-edit.png');
+  --brain-center-x: 83.5593%;
+  --brain-center-y: 49.53125%;
+}
+/* Only the top-left logo area uses generated pixels. The portrait stays original. */
+.af-prototype-canvas .af-home-avatar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--af-home-logo-edit) left top / 140% 140% no-repeat;
+  -webkit-mask-image: linear-gradient(to right, #000 21%, transparent 29%), linear-gradient(to bottom, #000 12%, transparent 18%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, #000 21%, transparent 29%), linear-gradient(to bottom, #000 12%, transparent 18%);
+  mask-composite: intersect;
+  pointer-events: none;
+}
+/* The supplied images already contain the brand. Keep header geometry and semantics. */
+.af-prototype-canvas .af-home-header .af-wordmark-asset,
+.af-prototype-canvas .is-login-real .af-login-brand .af-wordmark-asset {
+  visibility: hidden;
+}
+.af-prototype-canvas .is-login-real::before {
+  --af-avatar-asset: url('/prototype/ai-fenshen/home-day-20260928-original.jpg');
+  background-image: linear-gradient(180deg, rgba(2, 8, 23, 0.01), rgba(2, 8, 23, 0.02) 48%, rgba(2, 8, 23, 0.72) 88%, rgba(2, 8, 23, 0.9)), url('/prototype/ai-fenshen/home-day-20260928-original.jpg');
+  background-position: center;
+  filter: none;
+  transform: none;
+}
+.af-prototype-canvas .is-login-real .af-avatar-art {
+  background: url('/prototype/ai-fenshen/home-day-20260928-logo-edit.png') left top / 140% 140% no-repeat;
+  /* Match the image's cover geometry, including wider/shorter viewports. */
+  width: max(100%, calc(100cqh * 590 / 1280));
+  height: max(100%, calc(100cqw * 1280 / 590));
+  inset: auto;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  -webkit-mask-image: linear-gradient(to right, #000 21%, transparent 29%), linear-gradient(to bottom, #000 12%, transparent 18%);
+  -webkit-mask-composite: source-in;
+  mask-image: linear-gradient(to right, #000 21%, transparent 29%), linear-gradient(to bottom, #000 12%, transparent 18%);
+  mask-composite: intersect;
+}
+.af-prototype-canvas .is-login-real { container-type: size; }

@@ -33,7 +33,7 @@ function sendJson(res, status, payload, headers = {}) {
 test('feature flag is queryable and disabled mode blocks upload without touching storage', async () => {
   let serviceCalls = 0;
   const runtime = {
-    limits: { maxFileBytes: 8 * 1024 * 1024, maxAttachmentsPerMessage: 3 },
+    limits: { dailyUploadBytes:32 * 1024 * 1024, maxFileBytes: 8 * 1024 * 1024, maxAttachmentsPerMessage: 3 },
     service: new Proxy({}, {
       get() {
         serviceCalls += 1;
@@ -59,7 +59,7 @@ test('feature flag is queryable and disabled mode blocks upload without touching
     ok: true,
     enabled: false,
     supportedMimeTypes: ['image/jpeg', 'image/png', 'image/webp'],
-    limits: { maxFileBytes: 8 * 1024 * 1024, maxAttachmentsPerMessage: 3 }
+    limits: { dailyUploadBytes:32 * 1024 * 1024, maxFileBytes: 8 * 1024 * 1024, maxAttachmentsPerMessage: 3 }
   });
 
   const upload = responseHarness();

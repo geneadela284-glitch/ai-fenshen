@@ -185,12 +185,12 @@ test('creator and Huage identity questions are deterministic', async () => {
   for (const [index, message] of creatorQuestions.entries()) {
     const result = await agent.processUserMessage({ ownerId: OWNER, conversationId: `id-${index}`, message,
       clientRequestId: `id-${index}`, sourceMessageId: `id-${index}`, conversationMessages: [] });
-    assert.equal(result.content, '我是由示例维护者创建的。', message);
+    assert.equal(result.content, '我是我亲爱的华哥创造出来的。', message);
   }
-  const maintainerQuestions = ['维护者是谁', '谁是维护者', '你说的维护者是谁', '你的维护者是谁', '创造你的维护者是谁', '开发你的维护者是谁'];
-  for (const [index, message] of maintainerQuestions.entries()) {
+  const huageQuestions = ['华哥是谁', '谁是华哥', '你说的华哥是谁', '你的华哥是谁', '创造你的华哥是谁', '开发你的华哥是谁'];
+  for (const [index, message] of huageQuestions.entries()) {
     const result = await agent.processUserMessage({ ownerId: OWNER, conversationId: `huage-${index}`, message,
       clientRequestId: `huage-${index}`, sourceMessageId: `huage-${index}`, conversationMessages: [] });
-    assert.equal(result.content, '示例维护者，身份信息已脱敏。', message);
+    assert.equal(result.content, '华哥，本名梁钊华，广东省南雄市人，属羊。', message);
   }
 });

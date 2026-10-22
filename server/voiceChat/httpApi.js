@@ -1,5 +1,5 @@
 const messages={VOICE_ALREADY_ACTIVE:'你的账号已有语音聊天，请先结束另一处通话。',VOICE_BUSY:'语音服务正在忙，请稍后再试。',VOICE_DAILY_LIMIT:'今天的语音时长已用完，可以继续文字聊天。',VOICE_CONFIRMATION_EXPIRED:'这条确认已失效，请重新说明。',VOICE_SESSION_NOT_FOUND:'语音已结束，请重新开始。',VOICE_UNAVAILABLE:'语音聊天暂时不可用，请使用文字。'};
-export async function handleVoiceChatApi({req,res,url,session,runtime,sendJson,readJson,validateAuthorization}) {
+export async function handleVoiceChatApi({req,res,url,session,runtime,sendJson,readJson}) {
  if(!url.pathname.startsWith('/api/voice/chat'))return false;
  const user=session?.user;
  if(!user||!session.subject){sendJson(res,401,{ok:false,code:'UNAUTHENTICATED',message:'请先登录。'});return true;}
@@ -11,7 +11,7 @@ export async function handleVoiceChatApi({req,res,url,session,runtime,sendJson,r
   if((origin&&(!['http:','https:'].includes(new URL(origin).protocol)||new URL(origin).host!==host))||['cross-site','same-site'].includes(req.headers['sec-fetch-site'])||req.headers['x-ai-expected-account-context']!==user.id)throw Object.assign(new Error('VOICE_ACCOUNT_MISMATCH'),{code:'VOICE_ACCOUNT_MISMATCH'});
   if(url.pathname==='/api/voice/chat/sessions'&&req.method==='POST'){
    const body=await readJson(req);if(body.consent!==true)throw Object.assign(new Error('VOICE_CONSENT_REQUIRED'),{code:'VOICE_CONSENT_REQUIRED'});
-   const result=await runtime.create({user,subject:session.subject,conversationId:body.conversationId,timezone:body.timezone,mediaProtocol:body.mediaProtocol,validateAuthorization});json(201,{ok:true,...result});return true;
+   const result=runtime.create({user,subject:session.subject,conversationId:body.conversationId,timezone:body.timezone,mediaProtocol:body.mediaProtocol,interruptionVersion:body.interruptionVersion,clientContextVersion:body.clientContextVersion});json(201,{ok:true,...result});return true;
   }
   const match=url.pathname.match(/^\/api\/voice\/chat\/sessions\/([a-f0-9-]{36})\/(events|audio|control|confirm)$/);
   if(!match){json(404,{ok:false});return true;}const[,id,action]=match;

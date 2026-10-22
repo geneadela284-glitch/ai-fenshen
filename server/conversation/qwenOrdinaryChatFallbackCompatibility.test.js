@@ -495,18 +495,17 @@ test('approved ordinary-chat adapters explicitly declare their real delivery cap
   assert.deepEqual(manager.getCapabilities?.('deepseek'), {
     supportsChat: true,
     supportsStreaming: true,
-    supportsVoiceStreaming: true,
-    supportsSingleShotSseBridge: false
+    supportsSingleShotSseBridge: false,
+    supportsVoiceStreaming: true
   });
   assert.deepEqual(manager.getCapabilities?.('qwen'), {
     supportsChat: true,
     supportsStreaming: false,
-    supportsVoiceStreaming: true,
-    supportsSingleShotSseBridge: true
+    supportsSingleShotSseBridge: true,
+    supportsVoiceStreaming: true
   });
   assert.equal(typeof deepseek.chat, 'function');
   assert.equal(typeof deepseek.streamChat, 'function');
   assert.equal(typeof qwen.chat, 'function');
   assert.equal(typeof qwen.streamChat, 'undefined');
-  assert.equal(typeof qwen.streamVoiceChat, 'function');
 });

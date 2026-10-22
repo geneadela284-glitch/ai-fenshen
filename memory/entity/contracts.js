@@ -141,6 +141,13 @@ export const MEMORY_RECORD_V2_CHECKSUM_FIELDS = Object.freeze([
 ]);
 
 export const PREDICATE_STRUCTURED_VALUE_SCHEMAS = deepFreeze({
+  fact_statement: {
+    fields: ['value'],
+    required: ['value'],
+    fieldTypes: { value: 'string' },
+    cardinality: 'multiple',
+    unknownFieldPolicy: 'reject'
+  },
   birthday: {
     fields: ['date', 'calendarType', 'year', 'month', 'day', 'lunarLeapMonth', 'recurrence'],
     required: ['date'],

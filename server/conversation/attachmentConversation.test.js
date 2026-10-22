@@ -22,7 +22,9 @@ test('RED: Conversation binds attachment processing once and saves one grounded 
   const calls = [];
   runtime.service.setAttachmentProcessor({
     async processAttachmentsForMessage(input) {
-      calls.push(structuredClone(input));
+      const { onProgress, ...serializable } = input;
+      assert.equal(typeof onProgress, 'function');
+      calls.push(structuredClone(serializable));
       return {
         processingId: 'proc_test',
         answer: '附件一显示红色圆形，右侧是蓝色方形。'

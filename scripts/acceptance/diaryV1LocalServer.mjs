@@ -1,0 +1,12 @@
+import { createDiaryHarness } from '../../server/diary/testHarness.js';
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+const h=await createDiaryHarness({publicDir:path.resolve('apps/desktop/dist'),port:Number(process.env.DIARY_ACCEPTANCE_PORT||0)});
+const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Shanghai',year:'numeric',month:'2-digit',day:'2-digit'}).format(new Date());
+const year=Number(today.slice(0,4))+1;
+h.instance.diaryRuntime.service.create(h.account.id,{title:'与小明，约好下一次相聚',body:'【示例日记】\n今天和小明一起吃饭。我们约定明年的今天，仍然在同一个地方见面。\n\n记下这一刻，也把这份期待留给未来的自己。',occurredOn:today,idempotencyKey:'acceptance-sample-1',reminder:{scheduledAt:`${year}-${today.slice(5)}T01:00:00.000Z`,timezone:'Asia/Shanghai',repeat:'none'}});
+h.instance.diaryRuntime.service.create(h.account.id,{title:'一件还没有处理的小事',body:'【示例日记】\n这是一条供验收使用的过期提醒。\n即使错过了当天，尚未完成的约定也应该继续可见。你可以点击“稍后提醒”，或者明确标记完成。',occurredOn:today,idempotencyKey:'acceptance-sample-2',reminder:{scheduledAt:new Date(Date.now()-3*86400000).toISOString(),timezone:'Asia/Shanghai',repeat:'none'}});
+const info={url:h.baseUrl,username:h.username,password:h.password,directory:h.directory,cookie:h.login.setCookie,ownerId:h.account.id};
+writeFileSync(path.resolve('evidence/diary-v1/local-session.json'),JSON.stringify(info,null,2),{mode:0o600});
+console.log(JSON.stringify({url:h.baseUrl,username:h.username,directory:h.directory}));
+process.on('SIGTERM',async()=>{await h.close();process.exit(0);});

@@ -37,6 +37,7 @@ export class AttachmentService {
     accessControl,
     conversationRuntime,
     limits,
+    dailyUploadExemptAccountIds = [],
     clock = () => new Date(),
     logger = () => {}
   } = {}) {
@@ -45,6 +46,8 @@ export class AttachmentService {
     this.accessControl = accessControl;
     this.conversationRuntime = conversationRuntime;
     this.limits = limits;
+    this.dailyUploadExemptAccountIds = new Set(Array.isArray(dailyUploadExemptAccountIds)
+      ? dailyUploadExemptAccountIds.filter(id => typeof id === 'string' && id.length > 0) : []);
     this.clock = clock;
     this.logger = logger;
     this.processingService = null;
@@ -96,12 +99,16 @@ export class AttachmentService {
     };
   }
 
+  dailyUploadLimit(userId) {
+    return this.dailyUploadExemptAccountIds.has(userId) ? Infinity : this.limits.dailyUploadBytes;
+  }
+
   preflight(userId, clientRequestId, contentLength) {
     const replay = this.replay(userId, clientRequestId);
     if (replay) return replay;
     const dayKey = this.dayKey();
     const used = storeCall(() => this.repository.currentDailyBytes(userId, dayKey));
-    const remaining = Math.max(0, this.limits.dailyUploadBytes - used);
+    const remaining = Math.max(0, this.dailyUploadLimit(userId) - used);
     if (remaining <= 0 ||
         Number(contentLength) > remaining + this.limits.multipartOverheadBytes) {
       throw attachmentError('DAILY_UPLOAD_LIMIT_EXCEEDED', { status: 429 });
@@ -168,7 +175,7 @@ export class AttachmentService {
         dayKey: this.dayKey(),
         reservedBytes: Math.max(Number(reservedBytes) || 0, actualBytes),
         actualBytes,
-        dailyLimit: this.limits.dailyUploadBytes,
+        dailyLimit: this.dailyUploadLimit(owner),
         conversationId: ownedConversation,
         expiresAt,
         files: prepared

@@ -22,8 +22,11 @@ function normalizeDomain(domain = '') {
   return Object.values(ROUTER_DOMAINS).includes(value) ? value : '';
 }
 
-export function resolveRouterPolicy(domain = '') {
+export function resolveRouterPolicy(domain = '', metadata = {}) {
   const normalized = normalizeDomain(domain);
+  if (normalized === ROUTER_DOMAINS.ORDINARY_CHAT && metadata.voiceRealtimeOnly === true && metadata.voiceAnswerContext) {
+    return Object.freeze({version:'voice-answer-candidate-v1',domain:normalized,candidates:[{providerId:'qwen',modelId:metadata.voiceAnswerContext.protocol==='checked-v1' ? (metadata.voiceAnswerContext.phase==='review'&&(metadata.voiceAnswerContext.requireResourcePlan||metadata.voiceAnswerContext.simplePublicLookup||metadata.voiceAnswerContext.citationPassages?.length>0)?'qwen3.7-max':{plan:'qwen3.7-max',search:'qwen3.7-plus',review:'qwen3.7-flash',prepare:'qwen3.7-max',draft:'qwen3.7-flash'}[metadata.voiceAnswerContext.phase] || 'qwen3.7-max') : 'qwen3.7-max'}],allowFallback:false,maxAttempts:1,requirePreBusinessExecution:true});
+  }
   return Object.freeze({
     version: 'router-core-m12-b2-v1',
     domain: normalized,

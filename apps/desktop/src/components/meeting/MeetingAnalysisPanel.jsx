@@ -37,15 +37,19 @@ function refinementErrorMessage(code) {
 }
 
 function EvidenceActions({ evidenceRefs = [], onEvidenceSelect }) {
+  if (!evidenceRefs.length) return null;
   return (
-    <div className="meeting-analysis__evidence-actions">
+    <details className="meeting-analysis__evidence-disclosure">
+      <summary>查看依据<span>{evidenceRefs.length} 处原话</span></summary>
+      <div className="meeting-analysis__evidence-actions">
       {evidenceRefs.map((evidenceRef) => (
         <span className="meeting-analysis__evidence-group" key={evidenceRef.evidenceRefId}>
           <button type="button" className="meeting-analysis__evidence-button" onClick={() => onEvidenceSelect?.({ evidenceRef, mode: 'transcript' })}>查看原话</button>
           <button type="button" className="meeting-analysis__evidence-button meeting-analysis__evidence-button--secondary" onClick={() => onEvidenceSelect?.({ evidenceRef, mode: 'playback' })}>回听 {evidenceRef.timeLabel}</button>
         </span>
       ))}
-    </div>
+      </div>
+    </details>
   );
 }
 
@@ -197,13 +201,13 @@ function AnalysisUnavailable({
   const canStart = canAnalyze && typeof onAnalyze === 'function';
   return (
     <section className="meeting-analysis meeting-analysis--unavailable analysis-unavailable" data-testid="meeting-analysis-panel" data-analysis-state={isAnalyzing ? 'analyzing' : analysisError ? 'failed' : model.state} aria-label="会议分析">
-      <div className="meeting-analysis__eyebrow">MEETING BRAIN</div>
+      <div className="meeting-analysis__eyebrow">会议整理</div>
       <div className="meeting-analysis__unavailable-icon" aria-hidden="true">◌</div>
       <h3 className="meeting-analysis__title">AI会议整理</h3>
       <p className="meeting-analysis__unavailable-copy" data-testid="meeting-analysis-status">{statusCopy}。</p>
       <AnalysisProgress status={analysisStatus} />
-      {!isAnalyzing && (model.state === 'stale' || model.state === 'revalidation_required') ? <p className="meeting-analysis__unavailable-hint">原始会议与转写仍然保留，可以回到 Transcript 查看原文。</p> : null}
-      {!isAnalyzing && !errorCopy && model.state === 'unavailable' && transcriptReady ? <p className="meeting-analysis__unavailable-hint">分析结果只会在完成 grounded 校验并保存后显示，不会用猜测填充页面。</p> : null}
+      {!isAnalyzing && (model.state === 'stale' || model.state === 'revalidation_required') ? <p className="meeting-analysis__unavailable-hint">原始会议与转写仍然保留，可在“原始资料”查看。</p> : null}
+      {!isAnalyzing && !errorCopy && model.state === 'unavailable' && transcriptReady ? <p className="meeting-analysis__unavailable-hint">整理完成并核对来源后，结果会显示在这里。</p> : null}
       {canStart ? <button type="button" className="meeting-analysis__primary-action" onClick={onAnalyze} disabled={isAnalyzing} aria-busy={isAnalyzing}>{isAnalyzing ? '正在整理…' : analysisError ? '重新整理' : '一键整理会议'}</button> : null}
     </section>
   );
@@ -244,15 +248,14 @@ export function MeetingAnalysisPanel({
     <section className="meeting-analysis meeting-analysis--conversation" data-testid="meeting-analysis-panel" data-analysis-state={model.state} aria-label="会议分析">
       <div className="meeting-analysis__header">
         <div>
-          <div className="meeting-analysis__eyebrow">AI MEETING BRIEF</div>
+          <div className="meeting-analysis__eyebrow">会议纪要</div>
           <h3 className="meeting-analysis__title">AI会议整理</h3>
-          <p className="meeting-analysis__subtitle">先看结论，再回到原话</p>
+          <span className="meeting-analysis__status">{model.statusLabel}</span>
         </div>
           <div className="meeting-analysis__header-actions">
-            <span className="meeting-analysis__status">{model.statusLabel}</span>
             {typeof onExportDocument === 'function' ? <button type="button" className="meeting-analysis__export-action" onClick={onExportDocument} aria-label="导出会议整理文档">导出文档</button> : null}
             {typeof onExportPptx === 'function' ? <button type="button" className="meeting-analysis__export-action" onClick={onExportPptx} aria-label="导出会议整理 PPT">导出 PPT</button> : null}
-            {canAnalyze ? <button type="button" className="meeting-analysis__secondary-action" onClick={onAnalyze} disabled={analysisStatus === 'analyzing'} aria-busy={analysisStatus === 'analyzing'}>{analysisStatus === 'analyzing' ? '正在整理…' : '重新整理'}</button> : null}
+            {canAnalyze ? <details className="meeting-analysis__other-actions"><summary>更多</summary><button type="button" className="meeting-analysis__secondary-action" onClick={onAnalyze} disabled={analysisStatus === 'analyzing'} aria-busy={analysisStatus === 'analyzing'}>{analysisStatus === 'analyzing' ? '正在整理…' : '重新整理'}</button></details> : null}
         </div>
       </div>
       <AnalysisProgress status={analysisStatus} />
@@ -262,7 +265,7 @@ export function MeetingAnalysisPanel({
         <span className="meeting-analysis__chat-avatar" aria-hidden="true">AI</span>
         <div>
           <div className="meeting-analysis__chat-label">AI分身 · 已根据当前原文整理</div>
-          <p>我已经把这场会议整理成一份可直接行动的结果。下面优先显示会议摘要、决定和后续行动，原始转写仍保留在页面下方。</p>
+          <p>我已经把这场会议整理成一份可直接行动的结果。下面优先显示会议摘要、决定和后续行动，原始转写保留在“原始资料”中，随时可以查看。</p>
         </div>
       </div>
 
@@ -271,6 +274,18 @@ export function MeetingAnalysisPanel({
         <SummaryFact label="会议摘要" value={model.summary.overview} evidenceRefs={model.summary.overviewEvidenceRefs} onEvidenceSelect={onEvidenceSelect} />
       </div>
 
+      <div className="meeting-analysis__section" data-testid="meeting-decisions-section">
+        <div className="meeting-analysis__section-heading">会议决定</div>
+        {model.decisions.length ? <div className="meeting-analysis__cards">{model.decisions.map((decision) => <article className={`meeting-analysis__card ${decision.status === 'unresolved' ? 'meeting-analysis__card--unresolved' : ''}`} key={decision.decisionId || decision.content}><div className="meeting-analysis__card-topline"><span className="meeting-analysis__card-label">{decision.status === 'unresolved' ? '会议中尚未明确' : '已确认'}</span><span className="meeting-analysis__card-mark" aria-hidden="true">{decision.status === 'unresolved' ? '!' : '✓'}</span></div><p>{decision.content}</p><EvidenceActions evidenceRefs={decision.evidenceRefs} onEvidenceSelect={onEvidenceSelect} /></article>)}</div> : <p className="meeting-analysis__empty-copy">没有形成明确决定。</p>}
+      </div>
+
+      <div className="meeting-analysis__section" data-testid="meeting-action-items-section">
+        <div className="meeting-analysis__section-heading">后续行动</div>
+        {model.actionItems.length ? <div className="meeting-analysis__cards">{model.actionItems.map((item) => <article className="meeting-analysis__card" key={item.actionId || item.content}><div className="meeting-analysis__card-topline"><span className="meeting-analysis__card-label">{item.statusLabel}</span><span className="meeting-analysis__card-mark meeting-analysis__card-mark--cyan" aria-hidden="true">→</span></div><p>{item.content}</p><dl className="meeting-analysis__meta"><div><dt>负责人</dt><dd>{item.ownerLabel}</dd></div><div><dt>截止日期</dt><dd>{item.dueDateLabel}</dd></div></dl><EvidenceActions evidenceRefs={item.evidenceRefs} onEvidenceSelect={onEvidenceSelect} /></article>)}</div> : <p className="meeting-analysis__empty-copy">没有记录到后续行动。</p>}
+      </div>
+
+      <details className="meeting-analysis__more">
+        <summary>更多会议内容<span>重点、结论与未决问题</span></summary>
       <div className="meeting-analysis__section">
         <div className="meeting-analysis__section-heading">讨论重点</div>
         {model.summary.keyPoints.length ? (
@@ -298,16 +313,10 @@ export function MeetingAnalysisPanel({
         ) : <p className="meeting-analysis__empty-copy">没有记录到未决问题。</p>}
       </div>
 
-      <div className="meeting-analysis__section" data-testid="meeting-decisions-section">
-        <div className="meeting-analysis__section-heading">会议决定</div>
-        {model.decisions.length ? <div className="meeting-analysis__cards">{model.decisions.map((decision) => <article className={`meeting-analysis__card ${decision.status === 'unresolved' ? 'meeting-analysis__card--unresolved' : ''}`} key={decision.decisionId || decision.content}><div className="meeting-analysis__card-topline"><span className="meeting-analysis__card-label">{decision.status === 'unresolved' ? '会议中尚未明确' : '已确认'}</span><span className="meeting-analysis__card-mark" aria-hidden="true">{decision.status === 'unresolved' ? '!' : '✓'}</span></div><p>{decision.content}</p><EvidenceActions evidenceRefs={decision.evidenceRefs} onEvidenceSelect={onEvidenceSelect} /></article>)}</div> : <p className="meeting-analysis__empty-copy">没有形成明确决定。</p>}
-      </div>
+      </details>
 
-      <div className="meeting-analysis__section" data-testid="meeting-action-items-section">
-        <div className="meeting-analysis__section-heading">后续行动</div>
-        {model.actionItems.length ? <div className="meeting-analysis__cards">{model.actionItems.map((item) => <article className="meeting-analysis__card" key={item.actionId || item.content}><div className="meeting-analysis__card-topline"><span className="meeting-analysis__card-label">{item.statusLabel}</span><span className="meeting-analysis__card-mark meeting-analysis__card-mark--cyan" aria-hidden="true">→</span></div><p>{item.content}</p><dl className="meeting-analysis__meta"><div><dt>负责人</dt><dd>{item.ownerLabel}</dd></div><div><dt>截止日期</dt><dd>{item.dueDateLabel}</dd></div></dl><EvidenceActions evidenceRefs={item.evidenceRefs} onEvidenceSelect={onEvidenceSelect} /></article>)}</div> : <p className="meeting-analysis__empty-copy">没有记录到后续行动。</p>}
-      </div>
-
+      <details className="meeting-analysis__refinement-disclosure">
+        <summary>调整表达<span role="status">{refinementStatus === 'submitting' ? '正在调整…' : refinementStatus === 'failed' ? '调整未完成，请展开查看' : refinementStatus === 'ready' ? '草稿已就绪，展开查看' : '精简、重排或突出重点'}</span></summary>
       <RefinementComposer
         onRefine={onRefine}
         refinementStatus={refinementStatus}
@@ -315,6 +324,7 @@ export function MeetingAnalysisPanel({
         refinementRequest={refinementRequest}
         refinementResult={refinementResult}
       />
+      </details>
     </section>
   );
 }

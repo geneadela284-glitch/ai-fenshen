@@ -337,6 +337,16 @@ export function createMemoryMeetingBackend() {
       }
       state = next;
     },
+    async compareAndSwapMeeting(expected, replacement) {
+      if (nextFailure) {
+        const failure = nextFailure;
+        nextFailure = null;
+        throw failure;
+      }
+      const current = state.meetings.get(expected.id);
+      if (JSON.stringify(current) !== JSON.stringify(expected)) throw codedError('MEETING_RENAME_CONFLICT');
+      state.meetings.set(expected.id, clone(replacement));
+    },
     failNextAtomic(error = new Error('SIMULATED_ATOMIC_FAILURE')) {
       nextFailure = error;
     },
@@ -427,6 +437,24 @@ export function createIndexedDbMeetingBackend({ indexedDBImpl = globalThis.index
       for (const deletion of deletions) transaction.objectStore(deletion.storeName).delete(deletion.id);
       for (const row of puts) transaction.objectStore(row.storeName).put(row.value);
       await completed;
+    },
+    async compareAndSwapMeeting(expected, replacement) {
+      const database = await openDatabase();
+      const transaction = database.transaction('meetings', 'readwrite');
+      const completed = transactionPromise(transaction);
+      const store = transaction.objectStore('meetings');
+      const request = store.get(expected.id);
+      let conflict = false;
+      request.onsuccess = () => {
+        if (JSON.stringify(request.result) !== JSON.stringify(expected)) {
+          conflict = true;
+          transaction.abort();
+        } else store.put(replacement);
+      };
+      try { await completed; } catch (error) {
+        if (conflict) throw codedError('MEETING_RENAME_CONFLICT');
+        throw error;
+      }
     },
     async atomicDelete(deletions) {
       return this.atomicWrite({ deletions });
@@ -836,6 +864,31 @@ export function createMeetingPhase1Store({
       ]);
     });
     return Object.freeze({ meeting, manifest, segments: [] });
+  }
+
+  // Title-only mutation: retain source revisions, timestamps and every other stored field.
+  async function renameMeeting(ownerContext, input = {}) {
+    const contextValue = await context(ownerContext);
+    validateOwnerPayload(contextValue, input);
+    const meetingId = required(input.meetingId, 'MEETING_ID_REQUIRED');
+    if (typeof input.title !== 'string') throw codedError('MEETING_TITLE_INVALID');
+    const title = input.title.trim();
+    if (!title || [...title].length > 80 || /[\u0000-\u001f\u007f]/u.test(title)) throw codedError('MEETING_TITLE_INVALID');
+    const rows = await meetingRow(contextValue, meetingId);
+    if (!rows.record) throw codedError('MEETING_NOT_FOUND');
+    return keyProvider.withOwnerKey(contextValue, async (key) => {
+      const meeting = await decryptMeeting(contextValue, rows.record, key);
+      if (!['draft', 'ready', 'stopped'].includes(meeting.recordingState)) throw codedError('MEETING_RENAME_BUSY');
+      if (input.expectedTitle !== meeting.title) throw codedError('MEETING_RENAME_CONFLICT');
+      if (title === meeting.title) return meeting;
+      const nextMeeting = Object.freeze({ ...meeting, title });
+      const envelope = await encryptJson(cryptoImpl, key, nextMeeting, {
+        ownerId: contextValue.ownerId, meetingId, entityType: 'meeting', revision: meeting.revision
+      });
+      if (typeof backend.compareAndSwapMeeting !== 'function') throw codedError('MEETING_RENAME_UNAVAILABLE');
+      await backend.compareAndSwapMeeting(rows.record, { ...rows.record, nonce: envelope.nonce, ciphertext: envelope.ciphertext });
+      return nextMeeting;
+    });
   }
 
   async function saveSession(ownerContext, session) {
@@ -1994,6 +2047,7 @@ export function createMeetingPhase1Store({
 
   return Object.freeze({
     createMeeting,
+    renameMeeting,
     prepareMeeting,
     saveSession,
     listMeetings,

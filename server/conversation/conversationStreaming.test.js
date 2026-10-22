@@ -110,7 +110,10 @@ test('clientRequestId is database-backed idempotency and never invokes Provider 
   try {
     const first = parseSse(await (await postStream(h, { message: '你好', clientRequestId: 'same' }, h.ownerA.setCookie)).text());
     const conversationId = first[0].data.conversationId;
-    const second = parseSse(await (await postStream(h, { conversationId, message: '重复', clientRequestId: 'same' }, h.ownerA.setCookie)).text());
+    const second = parseSse(await (await postStream(h, { conversationId, message: '你好', clientRequestId: 'same' }, h.ownerA.setCookie)).text());
+    const changed = await postStream(h, {conversationId, message:'不同内容', clientRequestId:'same'}, h.ownerA.setCookie);
+    assert.notEqual(changed.status,200);
+    assert.equal((await changed.json()).code,'REQUEST_CONTENT_CONFLICT');
     assert.equal(h.provider.calls, 1);
     assert.deepEqual(second.map((item) => item.event), ['started', 'completed']);
     assert.equal(second[0].data.deduplicated, true);

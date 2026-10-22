@@ -69,7 +69,7 @@ export function createMemoryDuplicateConflictInspector({ memories, now = () => n
           matchingMemoryIds: exact.map((record) => record.memoryId)
         });
       }
-      if (records.length) {
+      if (records.length && PREDICATE_STRUCTURED_VALUE_SCHEMAS[predicate]?.cardinality !== 'multiple') {
         return immutable({
           conflictStatus: 'conflict', duplicateStatus: 'none',
           matchingMemoryIds: records.map((record) => record.memoryId)

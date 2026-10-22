@@ -1295,6 +1295,7 @@ html.af-prototype-active[data-af-standalone='true'] .af-theme,
 .af-message-list-inner::before { content: ""; margin-top: auto; }
 .af-message { width: min(88%, 620px); min-width: 0; max-width: 100%; box-sizing: border-box; overflow-wrap: anywhere; font-size: 14px; line-height: 1.66; }
 .af-message.is-user { align-self: flex-end; border: 1px solid var(--af-border-subtle); border-radius: 22px 22px 6px 22px; background: color-mix(in srgb, var(--af-primary) 17%, var(--af-surface)); padding: 12px 14px; }
+.af-message.is-user:has(.af-message-attachments) { width: max-content; max-width: min(88%, 620px); border: 0; border-radius: 0; background: transparent; padding: 0; }
 .af-message.is-assistant { align-self: flex-start; padding-block: 0; padding-inline: 0; }
 .af-message-label { margin-bottom: 6px; color: var(--af-text-muted); font-size: 10px; font-weight: 650; }
 .af-message-content p { margin: 0; white-space: pre-wrap; }
@@ -1322,17 +1323,17 @@ html.af-prototype-active[data-af-standalone='true'] .af-theme,
 .af-message-list-line { display: grid; grid-template-columns: 21px minmax(0, 1fr); gap: 3px; }
 .af-message-list-line > span { color: var(--af-secondary); }
 .af-message-attachment { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; color: var(--af-text-secondary); font-size: 11px; }
-.af-message-attachments { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; width: min(100%, 390px); max-width: 100%; margin-bottom: 10px; overflow: hidden; }
-.af-message-attachments.is-single { grid-template-columns: minmax(0, 1fr); width: min(100%, 280px); }
+.af-message-attachments { display: grid; grid-template-columns: repeat(2, minmax(0, 140px)); gap: 8px; width: 288px; max-width: 100%; margin-bottom: 10px; overflow: hidden; }
+.af-message-attachments.is-single { grid-template-columns: minmax(0, 1fr); width: 140px; }
 .af-message-image-card { position: relative; min-width: 0; overflow: hidden; border: 1px solid rgba(132, 177, 255, 0.14); border-radius: 14px; background: rgba(4, 18, 44, 0.5); }
-.af-message-image-open { position: relative; display: grid; width: 100%; height: 112px; place-items: center; overflow: hidden; border: 0; background: rgba(1, 8, 24, 0.78); padding: 0; }
-.af-message-attachments.is-single .af-message-image-open { height: 168px; }
+.af-message-image-open { position: relative; display: grid; width: 100%; height: auto; aspect-ratio: 1; place-items: center; overflow: hidden; border: 0; background: rgba(1, 8, 24, 0.78); padding: 0; }
+.af-message-attachments.is-single .af-message-image-open { aspect-ratio: 1; }
 .af-message-image-open img { position: absolute; inset: 0; display: block; width: 100%; max-width: 100%; height: 100%; object-fit: contain; object-position: center; }
 .af-message-image-open:disabled { color: var(--af-text-muted); }
 .af-message-image-card > div { display: flex; min-width: 0; flex-direction: column; padding: 7px 36px 7px 8px; }
 .af-message-image-card strong { overflow: hidden; font-size: 10px; font-weight: 580; text-overflow: ellipsis; white-space: nowrap; }
 .af-message-image-card small { color: var(--af-text-muted); font-size: 9px; }
-.af-message-image-delete { position: absolute; right: 2px; bottom: 2px; display: grid; width: 36px; height: 36px; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--af-text-muted); }
+.af-message-image-delete { position: absolute; right: 2px; bottom: 2px; display: grid; width: 44px; height: 44px; place-items: center; border: 0; border-radius: 10px; background: transparent; color: var(--af-text-muted); }
 .af-attachment-evidence { display: grid; gap: 6px; margin-top: 10px; border-left: 2px solid rgba(98, 161, 255, 0.42); padding: 7px 9px; color: var(--af-text-secondary); font-size: 10px; }
 .af-attachment-evidence.is-partial { border-left-color: rgba(255, 190, 90, 0.68); }
 .af-attachment-evidence.is-failed { border-left-color: var(--af-danger); }
@@ -1996,3 +1997,22 @@ html.af-prototype-active[data-af-standalone='true'] .af-theme,
   transition-duration: 140ms !important;
 }
 .is-reduced-motion .af-bubble-fragments { display: none; }
+
+/* Image interaction: real stage indicators and scoped responsive previews. */
+.af-attachment-selection { padding: 4px 4px 8px; min-width: 0; }
+.af-message-attachments.is-draft { display: flex; width: 100%; gap: 10px; overflow-x: auto; padding: 4px 0; margin-bottom: 0; }
+.af-message-attachments.is-draft .af-message-image-card { flex: 0 0 96px; width: 96px; border-radius: 16px; }
+.af-message-attachments.is-draft .af-message-image-open { width: 96px; height: 96px; min-height: 96px; aspect-ratio: 1; }
+.af-message-attachments.is-draft .af-message-image-card > div { padding: 5px 6px 7px; gap: 2px; }
+.af-message-attachments.is-draft .af-message-image-card strong { display: none; }
+.af-message-attachments.is-draft .af-message-image-card small { font-size: 11px; }
+.af-message-attachments.is-draft .af-message-image-delete { top: 0; bottom: auto; right: 0; color: #fff; background: linear-gradient(135deg, transparent, rgba(0,0,0,.68)); border-radius: 0 14px 0 16px; }
+.af-message-image-delete:disabled { opacity: .4; cursor: default; }
+.af-message-image-open:focus-visible, .af-message-image-delete:focus-visible { outline: 2px solid var(--af-primary); outline-offset: -3px; }
+.af-image-unavailable { display: grid; justify-items: center; gap: 6px; padding: 12px; font-size: 11px; line-height: 1.5; color: var(--af-text-muted); }
+.af-image-progress { display: flex; align-items: center; gap: 10px; min-height: 36px; padding: 6px 2px; color: var(--af-text-secondary); font-size: 13px; line-height: 1.5; }
+.af-image-progress-spinner { width: 17px; height: 17px; flex: 0 0 17px; box-sizing: border-box; border: 2px solid color-mix(in srgb, var(--af-text-secondary) 20%, transparent); border-top-color: var(--af-primary); border-radius: 50%; animation: af-image-spin 1s linear infinite; }
+@keyframes af-image-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .af-image-progress-spinner { animation: none; } }
+
+.af-image-unavailable .af-icon { position: static; inset: auto; width: 24px; height: 24px; flex: none; }

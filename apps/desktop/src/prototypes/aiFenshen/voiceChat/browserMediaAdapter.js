@@ -1,6 +1,8 @@
 const fail=code=>Object.assign(new Error(code),{code});
 const safely=fn=>{try{fn();}catch{}};
-const constraints={audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:true},video:false};
+// Keep platform echo/noise processing, but do not ask it to amplify quiet ambient
+// audio. These are preferences: unsupported constraints must not block capture.
+const constraints={audio:{channelCount:1,echoCancellation:true,noiseSuppression:true,autoGainControl:false},video:false};
 
 // Platform-only media port. No account, conversation, model or business state lives here.
 export class BrowserVoiceMediaAdapter {
@@ -35,7 +37,11 @@ export class BrowserVoiceMediaAdapter {
    this.listen(this.documentImpl,'visibilitychange',()=>{if(this.documentImpl.hidden)notify('VOICE_BACKGROUND');});
    this.listen(this.windowImpl,'pagehide',()=>notify('VOICE_BACKGROUND'));
    this.listen(this.windowImpl,'offline',()=>notify('VOICE_OFFLINE'));
-   this.listen(this.mediaDevices,'devicechange',()=>notify('VOICE_MICROPHONE_LOST'));
+   this.listen(this.mediaDevices,'devicechange',()=>{
+    if(this.muted||!this.stream)return;
+    const tracks=this.stream?.getAudioTracks?.()||this.stream?.getTracks?.()||[];
+    if(!tracks.some(track=>track.readyState!=='ended'))notify('VOICE_MICROPHONE_LOST');
+   });
    if(context.state!=='running'||this.documentImpl?.hidden)throw fail(this.documentImpl?.hidden?'VOICE_BACKGROUND':'VOICE_PLAYBACK_BLOCKED');
    return true;
   }catch(error){if(generation===this.generation)this.dispose();throw error;}
@@ -46,7 +52,7 @@ export class BrowserVoiceMediaAdapter {
   if(generation!==this.generation){for(const track of stream.getTracks())safely(()=>track.stop());return;}
   try{this.attachStream(stream,generation);}catch(error){for(const track of stream.getTracks())safely(()=>track.stop());throw error;}
  }
- play({audio,sampleRate,onEnded}){
+ play({audio,sampleRate,onEnded,onStarted,onLevel}){
   const context=this.context;if(!context||context.state!=='running')throw fail('VOICE_PLAYBACK_BLOCKED');
   if(sampleRate!==24000)throw fail('VOICE_AUDIO_ORDER');
   let raw;try{raw=atob(audio);}catch{throw fail('VOICE_AUDIO_INVALID');}
@@ -55,11 +61,20 @@ export class BrowserVoiceMediaAdapter {
   for(let i=0;i<channel.length;i++)channel[i]=pcm.getInt16(i*2,true)/32768;
   const now=context.currentTime;if(this.nextPlay-now>30)throw fail('VOICE_PLAYBACK_SLOW');
   const source=context.createBufferSource();source.buffer=buffer;source.connect(this.output||context.destination);this.sources.add(source);
-  source.onended=()=>{safely(()=>source.disconnect());this.sources.delete(source);onEnded?.();};
-  const at=Math.max(now+.035,this.nextPlay||0);source.start(at);this.nextPlay=at+buffer.duration;return{scheduledInMs:(at-now)*1000};
+  source.onended=()=>{if(!this.sources.has(source))return;this.samplePlayback();if(!source.playback.started){source.playback.started=true;onStarted?.();}safely(()=>source.disconnect());this.sources.delete(source);onLevel?.(0);if(!this.sources.size){clearInterval(this.playbackTimer);this.playbackTimer=null;}onEnded?.();};
+  const at=Math.max(now+.035,this.nextPlay||0);source.playback={at,channel,onStarted,onLevel,started:false};source.start(at);this.nextPlay=at+buffer.duration;if(!this.playbackTimer)this.playbackTimer=setInterval(()=>this.samplePlayback(),40);return{scheduledInMs:(at-now)*1000};
  }
- setVolume(value){if(this.output?.gain&&this.context)this.output.gain.setTargetAtTime(value,this.context.currentTime,.04);}
- clearPlayback(){for(const source of this.sources){source.onended=null;safely(()=>source.stop());safely(()=>source.disconnect());}this.sources.clear();this.nextPlay=0;this.setVolume(1);}
+ samplePlayback(){
+  const context=this.context;if(!context||context.state!=='running')return;
+  for(const source of this.sources){const p=source.playback;if(!p||context.currentTime<p.at)continue;
+   if(!p.started){p.started=true;p.onStarted?.();}
+   const offset=Math.floor((context.currentTime-p.at)*24000),end=Math.min(p.channel.length,offset+960);let sum=0;
+   for(let i=offset;i<end;i++)sum+=p.channel[i]*p.channel[i];
+   p.onLevel?.(end>offset?Math.sqrt(sum/(end-offset))*(this.volume??1):0);
+  }
+ }
+ setVolume(value){this.volume=value;if(this.output?.gain&&this.context)this.output.gain.setTargetAtTime(value,this.context.currentTime,.04);}
+ clearPlayback(){clearInterval(this.playbackTimer);this.playbackTimer=null;for(const source of this.sources){source.onended=null;safely(()=>source.stop());safely(()=>source.disconnect());}this.sources.clear();this.nextPlay=0;this.setVolume(1);}
  dispose(){
   ++this.generation;for(const off of this.listeners.splice(0))safely(off);this.stopCapture();this.clearPlayback();
   if(this.capture)this.capture.port.onmessage=null;

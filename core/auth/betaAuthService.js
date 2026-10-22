@@ -50,7 +50,7 @@ function buildCookie({ token = '', secret, maxAge = DEFAULT_TTL_SECONDS, secure 
     'Path=/',
     'HttpOnly',
     'SameSite=Lax',
-    `Max-Age=${maxAge}`,
+    maxAge === null ? '' : `Max-Age=${maxAge}`,
     secure ? 'Secure' : ''
   ].filter(Boolean);
   return attrs.join('; ');
@@ -241,7 +241,7 @@ export class BetaAuthService {
     return result.changes > 0;
   }
 
-  async login({ username, password, ip = 'local', userAgent = '' } = {}) {
+  async login({ username, password, ip = 'local', userAgent = '', rememberSession = false } = {}) {
     const account = await this.findAccountByUsername(username, { includeSecret: true });
     let decision;
     try {
@@ -294,7 +294,10 @@ export class BetaAuthService {
     });
     const token = crypto.randomBytes(32).toString('base64url');
     const createdAt = this.nowIso();
-    const expiresAt = new Date(new Date(this.clock()).getTime() + this.sessionTtlSeconds * 1000).toISOString();
+    // Native clients keep this session credential in their protected device store.
+    // Existing revocation, account status and password reset checks still apply.
+    const expiresAt = rememberSession === true ? '9999-12-31T23:59:59.999Z'
+      : new Date(new Date(this.clock()).getTime() + this.sessionTtlSeconds * 1000).toISOString();
     this.db.prepare('INSERT INTO sessions (token, accountId, createdAt, expiresAt, userAgent, ip) VALUES (?, ?, ?, ?, ?, ?)')
       .run(token, account.id, createdAt, expiresAt, String(userAgent).slice(0, 200), String(ip).slice(0, 80));
     try {
@@ -313,7 +316,7 @@ export class BetaAuthService {
       ok: true,
       user: publicAccount({ ...account, lastLoginAt: createdAt }),
       subject,
-      setCookie: buildCookie({ token, secret: this.cookieSecret, maxAge: this.sessionTtlSeconds, secure: this.secureCookie })
+      setCookie: buildCookie({ token, secret: this.cookieSecret, maxAge: rememberSession === true ? null : this.sessionTtlSeconds, secure: this.secureCookie })
     };
   }
 

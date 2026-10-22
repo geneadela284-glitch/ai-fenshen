@@ -1,131 +1,50 @@
 import test from'node:test';import assert from'node:assert/strict';import{DatabaseSync}from'node:sqlite';
 import{createConversationRuntime}from'../conversation/runtime.js';import{createVoiceChatRuntime}from'./runtime.js';
 const wait=async predicate=>{for(let i=0;i<200;i++){if(predicate())return;await new Promise(r=>setTimeout(r,2));}throw Error('WAIT_TIMEOUT');};
-function harness(t,{assistantOverride,clock=Date.now,coreOptions={},mediaProtocol=1,asrRun}={}){const database=new DatabaseSync(':memory:');let asr;const released=[],events=[],ttsTasks=[];let ttsCalls=0;
- const ai={settings:{load:()=>({})},router:{async run(task){if(task.capability==='VOICE_CHAT_ASR'){asr=task;if(asrRun)return asrRun(task);task.onReady({append(){},finish(){}});await new Promise(r=>task.signal.addEventListener('abort',r,{once:true}));return{};}ttsCalls++;ttsTasks.push(task);for await(const text of task.text){if(!task.signal.aborted)task.onAudio(Buffer.alloc(480));}return{};}},async stream(task,{onDelta,signal},invocation){assert.equal(task.metadata.requestId,invocation.requestLease.requestId,'voice text uses the same authenticated lease identity');await onDelta('你好。');return{ok:true,content:'你好。'};}};
+test('voice obtains owner-bound local context before the model and does not accept stale context tokens',async t=>{
+ const h=harness(t,{clientContextVersion:1});let modelTask;
+ h.ai.stream=async(task,{onDelta})=>{modelTask=task;await onDelta('你喜欢喝龙井。');return{ok:true,content:'你喜欢喝龙井。'}};
+ h.getAsr().onTranscript('我喜欢喝什么？');await wait(()=>h.events.some(e=>e.type==='context_required'));
+ assert.equal(modelTask,undefined);const request=h.events.find(e=>e.type==='context_required').data;
+ const localMemory={schema:'local-memory-evidence:1',ownerId:'a',spaceId:'personal',question:request.text,state:'available',revision:1,
+ items:[{memoryId:'mem_test',version:1,text:'我喜欢喝龙井。',source:{type:'conversation_message',id:'source'},updatedAt:'2026-10-03T00:00:00.000Z'}],revoked:[]};
+ assert.throws(()=>h.runtime.control(h.s.id,'a',{type:'context',turnId:request.turnId,contextToken:'wrong',localMemory}),{code:'VOICE_CONTEXT_STALE'});
+ h.runtime.control(h.s.id,'a',{type:'context',turnId:request.turnId,contextToken:request.contextToken,localMemory});
+ await wait(()=>modelTask);assert.match(JSON.stringify(modelTask.messages),/龙井/);await wait(()=>h.events.some(e=>e.type==='audio_end'));
+});
+test('typed input clears recognition fragments and late ASR without ending the existing session',async t=>{
+ const h=harness(t);const previous=h.getAsr();
+ const begin=h.runtime.control(h.s.id,'a',{type:'external_input',active:true,id:'typed-1'});
+ assert.ok(begin.inputEpoch>0);previous.onTranscript('不应该入队的旧片段');await new Promise(r=>setTimeout(r,5));
+ assert.equal(h.base.messages.listForConversationOwner(h.s.conversationId,'a').length,0);
+ const end=h.runtime.control(h.s.id,'a',{type:'external_input',active:false,id:'typed-1'});assert.ok(end.inputEpoch>begin.inputEpoch);
+ assert.equal(h.runtime.sessions.size,1);await wait(()=>h.getAsr()!==previous);h.getAsr().onTranscript('继续当前对话');await wait(()=>h.events.some(e=>e.type==='audio_end'));
+ assert.equal(h.base.messages.listForConversationOwner(h.s.conversationId,'a')[0].content,'继续当前对话');
+});
+function harness(t,{assistantOverride,clock=Date.now,coreOptions={},mediaProtocol=1,clientContextVersion=0}={}){const database=new DatabaseSync(':memory:');let asr;const released=[],events=[];let ttsCalls=0;
+ const ai={settings:{load:()=>({})},router:{async run(task){if(task.capability==='VOICE_CHAT_ASR'){asr=task;task.onReady({append(){},finish(){}});await new Promise(r=>task.signal.addEventListener('abort',r,{once:true}));return{};}ttsCalls++;for await(const text of task.text){if(!task.signal.aborted)task.onAudio(Buffer.alloc(480));}return{};}},async stream(task,{onDelta,signal},invocation){assert.equal(task.metadata.requestId,invocation.requestLease.requestId,'voice text uses the same authenticated lease identity');await onDelta('你好。');return{ok:true,content:'你好。'};}};
  const accessControl={assertAuthenticatedSubject:subject=>subject,beginRequest:({requestId})=>({requestId}),releaseRequest:l=>released.push(l)};
  const base=createConversationRuntime({database,aiService:ai,applyMigrations:true});
  const runtime=createVoiceChatRuntime({enabled:true,clock,coreOptions,conversationRuntime:base,aiService:ai,accessControl,assistantOverride:assistantOverride||{async processUserMessage(){return{handled:false};}}});
  t.after(async()=>{await runtime.close();base.close();database.close();});
- const s=runtime.create({user:{id:'a'},subject:{accountId:'a'},mediaProtocol});runtime.subscribe(s.id,'a',event=>events.push(event),()=>{});
- return{runtime,s,events,getAsr:()=>asr,base,released,ai,getTtsCalls:()=>ttsCalls,getTtsTasks:()=>ttsTasks};}
-test('70-second ASR rotation buffers a three-second handshake and drains pressure in order',async t=>{
- let now=0;const connections=[],received=[];let budget=4,canFinish=false;
- t.mock.timers.enable({apis:['setInterval']});
- const h=harness(t,{clock:()=>now,asrRun:task=>new Promise(resolve=>{
-  const handle={append:bytes=>{if(!budget)return false;budget--;received.push(bytes[0]);return true;},finish:()=>{if(!canFinish)return false;resolve();return true;}};
-  connections.push({task,handle});task.signal.addEventListener('abort',resolve,{once:true});if(connections.length===1)task.onReady(handle);
- })});
- for(let i=0;i<14;i++){now+=5000;h.runtime.control(h.s.id,'a',{type:'heartbeat'});h.getAsr().onSpeechStart();t.mock.timers.tick(5000);}
- h.getAsr().onSpeechStop();now+=3000;t.mock.timers.tick(3000);assert.equal(h.runtime.sessions.get(h.s.id).asr,connections[0].handle);
- canFinish=true;now+=1000;t.mock.timers.tick(1000);await wait(()=>connections.length===2);
- for(let i=0;i<15;i++){now+=200;h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,i),i);t.mock.timers.tick(200);}
- connections[1].task.onReady(connections[1].handle);
- h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,15),15);
- assert.deepEqual(received,[0,1,2,3]);
- budget=20;now+=20;t.mock.timers.tick(20);
- assert.deepEqual(received,Array.from({length:16},(_,i)=>i));assert.equal(h.runtime.sessions.has(h.s.id),true);
- assert.equal(h.events.some(e=>e.type==='ended'),false);
+ const s=runtime.create({user:{id:'a'},subject:{accountId:'a'},mediaProtocol,clientContextVersion});runtime.subscribe(s.id,'a',event=>events.push(event),()=>{});
+ return{runtime,s,events,getAsr:()=>asr,base,released,ai,getTtsCalls:()=>ttsCalls};}
+test('an explicit stop word in the current spoken answer cannot bypass playback echo protection',async t=>{
+ const answer='你可以对他说，等一下，我们先核对清楚。';
+ const h=harness(t,{assistantOverride:{processUserMessage:()=>({handled:true,domain:'ordinary_chat',content:answer})},coreOptions:{conservativeInterruption:true}});
+ h.getAsr().onTranscript('如何让对方先核对');await wait(()=>h.events.some(e=>e.type==='audio_end'));
+ const turn=h.runtime.sessions.get(h.s.id).turn;
+ h.getAsr().onSpeechStart();h.getAsr().onTranscript('等一下','echo-stop');
+ await new Promise(r=>setTimeout(r,10));
+ assert.equal(turn.controller.signal.aborted,false);
+ assert.equal(h.base.messages.listForConversationOwner(h.s.conversationId,'a').length,2);
+ h.getAsr().onTranscript('别说了','real-stop');await wait(()=>turn.controller.signal.aborted);
 });
 test('synthesis connects as soon as visible text arrives, overlapping the rest of generation',async t=>{
  const h=harness(t);let connectedBeforeSentence=false;
  h.ai.stream=async(task,{onDelta})=>{onDelta('这是一个还没有结束的句子');await wait(()=>h.getTtsCalls()===1);connectedBeforeSentence=true;onDelta('，我们继续聊。');return{ok:true,content:'这是一个还没有结束的句子，我们继续聊。'};};
  h.getAsr().onTranscript('我们聊聊');await wait(()=>h.events.some(e=>e.type==='audio_end'||e.type==='ended'));
  assert.equal(connectedBeforeSentence,true);assert.ok(h.events.some(e=>e.type==='audio_end'));
-});
-test('low-latency synthesis warms its connection before the first answer delta',async t=>{
- const h=harness(t,{coreOptions:{lowLatency:true}});
- h.ai.stream=async(task,{onDelta})=>{
-  await wait(()=>h.getTtsCalls()===1);
-  await onDelta('你好。');
-  return{ok:true,content:'你好。'};
- };
- h.getAsr().onTranscript('你好');
- await wait(()=>h.events.some(e=>e.type==='audio_end'||e.type==='ended'));
- assert.equal(h.events.some(e=>e.type==='audio_end'),true);
-});
-test('TTS first-chunk commit follows the negotiated low-latency mode',async t=>{
- for(const [lowLatency,expected] of [[true,true],[false,false]]){
-  const h=harness(t,{coreOptions:{lowLatency}});h.getAsr().onTranscript('你好');
-  await wait(()=>h.events.some(e=>e.type==='audio_end'||e.type==='ended'));
-  assert.equal(h.getTtsTasks()[0].commitFirstTextChunk===true,expected);
- }
-});
-test('ordinary voice answers pass a bounded output budget to the AI stream',async t=>{
- const h=harness(t,{coreOptions:{ordinaryChat:true}});let received;
- h.ai.stream=async(task,{onDelta})=>{received=task;await onDelta('周末可以去公园散步。');return{ok:true,content:'周末可以去公园散步。'};};
- h.getAsr().onTranscript('周末想出去散步，给我一个简单建议。');await wait(()=>h.events.some(e=>e.type==='audio_end'));
- assert.equal(received.options.maxTokens,256);
- assert.equal(received.metadata.voiceOrdinaryChat,true);
- assert.equal(received.metadata.voiceRealtimeOnly,true);
-});
-test('ordinary voice context keeps recent advice without sending stale business history',async t=>{
- const h=harness(t,{coreOptions:{ordinaryChat:true}});
- const seed=[
-  ['明天提醒我开会','几点？'],
-  ['周末想出去散步，给我一个简单建议。','可以去附近公园走走。'],
-  ['那下雨的话呢？','可以去室内博物馆。'],
-  ['还有别的选择吗？','也可以去购物中心。']
- ];
- for(const [index,[user,assistant]] of seed.entries()){
-  const userMessage=h.base.messages.createUserMessage({ownerId:'a',conversationId:h.s.conversationId,content:user,clientRequestId:`seed-${index}`});
-  const placeholder=h.base.messages.createAssistantPlaceholder({ownerId:'a',conversationId:h.s.conversationId,clientRequestId:`seed-${index}`});
-  h.base.messages.completeAssistantMessage({ownerId:'a',messageId:placeholder.id,content:assistant});
-  assert.ok(userMessage.id);
- }
- let received;
- h.ai.stream=async(task,{onDelta})=>{received=task.messages;await onDelta('可以去室内展馆。');return{ok:true,content:'可以去室内展馆。'};};
- h.getAsr().onTranscript('那下雨的话呢？');await wait(()=>h.events.some(e=>e.type==='audio_end'));
- const visible=received.filter(message=>message.role!=='system');
- assert.ok(visible.length<=8);
- assert.equal(visible.some(message=>message.content==='明天提醒我开会'),false);
- assert.ok(visible.some(message=>message.content==='还有别的选择吗？'));
- assert.ok(visible.some(message=>message.content==='也可以去购物中心。'));
-});
-for(const greeting of ['我说：“嗨，你好啊。”','早上好','听得到吗'])test('voice greeting preserves business history with a current-turn boundary: '+greeting,async t=>{
- const h=harness(t,{coreOptions:{ordinaryChat:true}});
- h.base.messages.createUserMessage({ownerId:'a',conversationId:h.s.conversationId,content:'明天提醒我开会',clientRequestId:'prior'});
- const previous=h.base.messages.createAssistantPlaceholder({ownerId:'a',conversationId:h.s.conversationId,clientRequestId:'prior'});
- h.base.messages.completeAssistantMessage({ownerId:'a',messageId:previous.id,content:'几点？'});
- let received;
- h.ai.stream=async(task,{onDelta})=>{received=task.messages;
-  await onDelta('嗨，你好。');return{ok:true,content:'嗨，你好。'};};
- h.getAsr().onTranscript(greeting);await wait(()=>h.events.some(e=>e.type==='audio_end'||e.type==='ended'));
- assert.ok(received.some(m=>m.role==='user'&&m.content==='明天提醒我开会'));
- const policy=received.filter(m=>m.role==='system').map(m=>m.content).join('\n');assert.match(policy,/本轮是独立问候/);assert.match(policy,/不要主动续办/);
- assert.equal(h.events.some(e=>e.type==='ended'),false);
-});
-for(const [message,ordinaryChat] of [['讲个笑话',true],['你好',false]])test('greeting-only policy does not alter content requests or flag-off: '+message,async t=>{
- const h=harness(t,{coreOptions:{ordinaryChat}});let received;
- h.ai.stream=async(task,{onDelta})=>{received=task.messages;await onDelta('可以。');return{ok:true,content:'可以。'};};
- h.getAsr().onTranscript(message);await wait(()=>h.events.some(e=>e.type==='audio_end'));
- assert.ok(received.every(m=>!m.content.includes('本轮是独立问候')));
-});
-test('ASR waiting remains byte bounded and invalid audio never becomes queued speech',async t=>{
- const h=harness(t);h.runtime.sessions.get(h.s.id).asr={append:()=>false};
- assert.throws(()=>h.runtime.audio(h.s.id,'b',Buffer.alloc(6400),0),{code:'VOICE_SESSION_NOT_FOUND'});
- assert.throws(()=>h.runtime.audio(h.s.id,'a',Buffer.alloc(3),0),{code:'VOICE_AUDIO_INVALID'});
- for(let i=0;i<50;i++)h.runtime.audio(h.s.id,'a',Buffer.alloc(6400),i);
- assert.throws(()=>h.runtime.audio(h.s.id,'a',Buffer.alloc(6400),50),{code:'VOICE_BACKPRESSURE'});
- assert.equal(h.runtime.sessions.has(h.s.id),false);assert.equal(h.events.at(-1).data.code,'VOICE_BACKPRESSURE');
-});
-test('a stalled ASR drain stops at its deadline even without further uploads',async t=>{
- let now=1000;t.mock.timers.enable({apis:['setInterval']});const h=harness(t,{clock:()=>now});
- h.runtime.sessions.get(h.s.id).asr={append:()=>false};h.runtime.audio(h.s.id,'a',Buffer.alloc(6400),0);
- now+=9999;t.mock.timers.tick(9999);assert.equal(h.runtime.sessions.has(h.s.id),true);
- now+=21;t.mock.timers.tick(21);assert.equal(h.runtime.sessions.has(h.s.id),false);assert.equal(h.events.at(-1).data.code,'VOICE_BACKPRESSURE');
-});
-test('mute and end discard queued microphone epochs and ignore late ASR readiness',async t=>{
- const connections=[],received=[];let now=0;t.mock.timers.enable({apis:['setInterval']});
- const h=harness(t,{clock:()=>now,asrRun:task=>new Promise(resolve=>{connections.push(task);task.signal.addEventListener('abort',resolve,{once:true});})});
- h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,1),0);
- h.runtime.control(h.s.id,'a',{type:'mute',muted:true});h.runtime.control(h.s.id,'a',{type:'mute',muted:false});
- const handle={append:bytes=>{received.push(bytes[0]);return true;},finish(){}};
- connections[0].onReady(handle);h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,2),1,0);
- connections[1].onReady(handle);h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,9),2,2);
- assert.deepEqual(received,[9]);h.runtime.sessions.get(h.s.id).asr={append:()=>false};h.runtime.audio(h.s.id,'a',Buffer.alloc(6400,8),3,2);
- h.runtime.control(h.s.id,'a',{type:'end'});connections[1].onReady(handle);now+=12000;t.mock.timers.tick(12000);
- assert.deepEqual(received,[9]);assert.equal(h.events.filter(e=>e.type==='ended').length,1);
 });
 test('speech activity alone does not cancel an answer before recognized words arrive',async t=>{
  let finish;const h=harness(t,{assistantOverride:{processUserMessage:()=>new Promise(r=>finish=r)}});
@@ -197,7 +116,7 @@ test('active authenticated voice session continues past ten minutes while heartb
 });
 test('open-ended voice questions receive the same creator policy through the actual conversation service',async t=>{
  const h=harness(t);let received=false;
- h.ai.stream=async(task,{onDelta})=>{const policy=task.messages.filter(m=>m.role==='system').map(m=>m.content).join('\n');assert.match(policy,/我是由示例维护者创建的。/);assert.match(policy,/示例维护者，身份信息已脱敏。/);received=true;await onDelta('我是由示例维护者创建的。');return{ok:true,content:'我是由示例维护者创建的。'};};
+ h.ai.stream=async(task,{onDelta})=>{const policy=task.messages.filter(m=>m.role==='system').map(m=>m.content).join('\n');assert.match(policy,/我是我亲爱的华哥创造出来的。/);assert.match(policy,/华哥，本名梁钊华，广东省南雄市人，属羊。/);received=true;await onDelta('我是我亲爱的华哥创造出来的。');return{ok:true,content:'我是我亲爱的华哥创造出来的。'};};
  h.getAsr().onTranscript('聊聊你的诞生过程');await wait(()=>h.events.some(e=>e.type==='audio_end'||e.type==='ended'));assert.equal(received,true);assert.equal(h.events.some(e=>e.type==='ended'),false);
 });
 

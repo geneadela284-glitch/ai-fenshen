@@ -64,7 +64,7 @@ test('protected policy is server-only and captures the authenticated owner user 
     message: '我妈妈5月6号生日。',
     clientRequestId: 'client-memory-1',
     sourceMessageId: memory.calls[0].sourceMessageId,
-    conversationMessages: [{ role: 'user', content: '我妈妈5月6号生日。' }],
+    conversationMessages: [{ id:memory.calls[0].sourceMessageId, clientRequestId:'client-memory-1', status:'completed', role: 'user', content: '我妈妈5月6号生日。' }],
     captureEligible: true
   });
 });

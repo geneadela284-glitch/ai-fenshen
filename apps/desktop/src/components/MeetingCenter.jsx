@@ -15,6 +15,7 @@ import {
   selectCurrentTranscriptionJobs
 } from './meeting/meetingRevisionSelection.js';
 import './meeting/MeetingFuturePunk.css';
+import './meeting/MeetingExperience.css';
 import {
   createMeetingStage3cRecordingExperience,
   reloadMeetingRecorderSession
@@ -305,6 +306,14 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [mobilePanel, setMobilePanel] = useState('list');
+  const [detailView, setDetailView] = useState('main');
+  const [renamePending, setRenamePending] = useState(false);
+  const analysisClickLock = useRef(false);
+  const meetingViewportRef = useRef(null);
+  const showDetailView = (view) => {
+    if (meetingViewportRef.current) meetingViewportRef.current.scrollTop = 0;
+    setDetailView(view);
+  };
   const [overflowMenuOpen, setOverflowMenuOpen] = useState(false);
   const [segmentsExpanded, setSegmentsExpanded] = useState(false);
   const [transcriptsExpanded, setTranscriptsExpanded] = useState({});
@@ -493,6 +502,8 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
 
   const active = snapshot.active;
   const activeState = active?.meeting?.recordingState || '';
+  const effectiveDetailView = ['recording', 'interrupted', 'finalization_pending'].includes(activeState) ? 'main' : detailView;
+  useEffect(() => { setDetailView('main'); }, [active?.meeting?.meetingId]);
 
   useEffect(() => {
     setAnalysisRefinement({ status: 'idle', request: '', result: '', errorCode: '' });
@@ -998,6 +1009,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
   const selectEvidence = ({ evidenceRef } = {}) => {
     if (!evidenceRef) return;
     const selectionKey = `${evidenceRef.evidenceRefId}:${evidenceRef.startMs}:${Date.now()}`;
+    setDetailView('materials');
     setEvidenceTarget({ selectionKey, evidenceRef });
     setNotice(`已定位到原话 ${formatTranscriptTime(evidenceRef.startMs)}，可在下方回听。`);
   };
@@ -1037,7 +1049,24 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
     );
   }
 
+  const startAnalysisFromUi = async () => {
+    if (analysisClickLock.current || busy || analysisOperation.status === 'analyzing') return;
+    analysisClickLock.current = true;
+    showDetailView('results');
+    try { await runMeetingAnalysis(); } finally { analysisClickLock.current = false; }
+  };
+  const renameHistoricalMeeting = async (meetingId, nextTitle, expectedTitle) => {
+    if (!manager?.renameMeeting || busy || importBusy) throw new Error('MEETING_RENAME_BUSY');
+    setRenamePending(true);
+    setBusy(true);
+    try {
+      await manager.renameMeeting(meetingId, nextTitle, expectedTitle);
+      setNotice('会议名称已保存。');
+    } finally { setRenamePending(false); setBusy(false); }
+  };
+
   const analysisPanel = (
+    <div className="meeting-v2-result-slot" hidden={effectiveDetailView !== 'results'}>
     <MeetingAnalysisPanel
                 analysis={analysis}
                 sourceReady={Boolean(analysisSource || playbackPanelSource)}
@@ -1045,7 +1074,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
                 onEvidenceSelect={selectEvidence}
                 analysisStatus={analysisOperation.status}
                 analysisError={analysisOperation.errorCode}
-                onAnalyze={runMeetingAnalysis}
+                onAnalyze={startAnalysisFromUi}
                 canAnalyze={Boolean(analysisSource && analysisTranscriptRevision && manager?.analysis && !busy)}
                 refinementStatus={analysisRefinement.status}
                 refinementError={analysisRefinement.errorCode}
@@ -1055,14 +1084,16 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
                 onExportDocument={exportMeetingDocument}
                 onExportPptx={exportMeetingPresentation}
               />
+    </div>
   );
 
   return (
-    <div data-testid="meeting-scroll-container" className={`meeting-future-punk meeting-v1-app-shell ${isMeetingLightSurface ? 'meeting-v1-app-shell--light' : ''} ${isMeetingHome ? 'meeting-v1-app-shell--home' : ''} box-border mx-auto flex h-full max-h-full min-h-0 w-full min-w-0 max-w-6xl flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-6 sm:py-6`}>
+    <div ref={meetingViewportRef} data-testid="meeting-scroll-container" data-meeting-view={effectiveDetailView} data-meeting-state={activeState} className={`meeting-future-punk meeting-v1-app-shell meeting-experience ${isMeetingLightSurface ? 'meeting-v1-app-shell--light' : ''} ${isMeetingHome ? 'meeting-v1-app-shell--home' : ''} box-border mx-auto flex h-full max-h-full min-h-0 w-full min-w-0 max-w-6xl flex-col gap-4 overflow-x-hidden overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-6 sm:py-6`}>
       <header className={`meeting-v1-topbar${active ? ' meeting-v1-topbar--detail' : ''}`}>
         <button
           type="button"
           className="meeting-v1-top-action meeting-v1-top-action--back"
+          disabled={renamePending}
           onClick={() => handleMeetingTopBack({ mobilePanel: effectiveMobilePanel, setMobilePanel, onNavigate })}
           aria-label={effectiveMobilePanel === 'detail' || effectiveMobilePanel === 'import' ? '返回会议列表' : '返回首页'}
           title={effectiveMobilePanel === 'detail' || effectiveMobilePanel === 'import' ? '回到会议列表' : '回到首页'}
@@ -1074,6 +1105,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
           <button
             type="button"
             className="meeting-v1-top-action meeting-v1-top-action--more"
+            disabled={renamePending}
             onClick={() => setOverflowMenuOpen((current) => !current)}
             aria-label="会议操作菜单"
             aria-expanded={overflowMenuOpen}
@@ -1141,9 +1173,9 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
           <section className="meeting-v1-list-page meeting-v1-list-page--home" aria-label="会议列表">
             <div className="meeting-v1-home-hero">
               <div className="meeting-v1-home-hero__copy">
-                <p className="meeting-v1-eyebrow">AI分身 · MEETING SPACE</p>
-                <h1>每场会议，<br /><span>都留下重点。</span></h1>
-                <p>录音、转写和 AI 整理，都在同一个会议空间里。</p>
+                <p className="meeting-v1-eyebrow">记录 · 整理 · 回顾</p>
+                <h1>会议</h1>
+                <p>让讨论有记录，让下一步更清楚。</p>
               </div>
               <div className="meeting-v1-home-hero__metric" aria-label={`已保存 ${snapshot.meetings.length} 场会议`}>
                 <span>会议记录</span>
@@ -1159,8 +1191,8 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
                 onClick={createMeeting}
                 disabled={busy || !manager || encryptionState !== 'ready'}
               >
-                <span className="meeting-v1-home-action__index" aria-hidden="true">01</span>
-                <span className="meeting-v1-home-action__copy"><strong>开始新会议</strong><small>立即录音，保留完整上下文</small></span>
+                <span className="meeting-v1-home-action__index" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 10v2a6 6 0 0 0 12 0v-2M12 18v3M8 21h8"/></svg></span>
+                <span className="meeting-v1-home-action__copy"><strong>开始新会议</strong><small>记录现场讨论</small></span>
                 <span className="meeting-v1-home-action__arrow" aria-hidden="true">进入</span>
               </button>
               <button
@@ -1169,8 +1201,8 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
                 onClick={openImportMeeting}
                 disabled={busy || !manager}
               >
-                <span className="meeting-v1-home-action__index" aria-hidden="true">02</span>
-                <span className="meeting-v1-home-action__copy"><strong>导入已有录音</strong><small>从本地音频继续整理</small></span>
+                <span className="meeting-v1-home-action__index" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7"><path d="M12 16V3m-4 4 4-4 4 4M4 14v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg></span>
+                <span className="meeting-v1-home-action__copy"><strong>导入已有录音</strong><small>选择已有音频</small></span>
                 <span className="meeting-v1-home-action__arrow" aria-hidden="true">打开</span>
               </button>
             </div>
@@ -1200,6 +1232,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
                         analysisLabel={analysisListStateLabels[meetingAnalysisState] || '暂无分析'}
                         onOpen={openMeeting}
                         onDelete={deleteMeeting}
+                        onRename={renameHistoricalMeeting}
                       />
                     );
                   })}
@@ -1209,9 +1242,20 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
           </section>
         </div>
 
-        <div className={`meeting-future-punk__detail-panel min-w-0 grid gap-4 ${effectiveMobilePanel === 'list' ? 'max-[768px]:hidden' : ''} ${['draft', 'ready', 'recording', 'interrupted', 'finalization_pending'].includes(activeState) ? 'meeting-v1-detail-panel--recording' : ''}`}>
+        <div inert={renamePending} className={`meeting-future-punk__detail-panel min-w-0 grid gap-4 ${effectiveMobilePanel === 'list' ? 'max-[768px]:hidden' : ''} ${['draft', 'ready', 'recording', 'interrupted', 'finalization_pending'].includes(activeState) ? 'meeting-v1-detail-panel--recording' : ''}`}>
           {active ? (
             <>
+              <section className="meeting-v2-detail-heading">
+                <p className="meeting-v2-eyebrow">{formatDate(active.meeting.createdAt)} · {activeDuration}</p>
+                <h2>{active.meeting.title}</h2>
+                <div className="meeting-v2-view-switch" aria-label="会议内容">
+                  {[['main', '录音与回听'], ['results', '整理结果'], ['materials', '原始资料']].map(([view, label]) => <button key={view} type="button" aria-pressed={effectiveDetailView === view} disabled={['recording', 'interrupted', 'finalization_pending'].includes(activeState) && view !== 'main'} onClick={() => showDetailView(view)}>{label}</button>)}
+                </div>
+              </section>
+              <section className="meeting-v2-next-step" hidden={effectiveDetailView !== 'main' || !playbackPanelSource}>
+                <div><h3>{analysisOperation.status === 'analyzing' ? '正在整理会议' : analysis ? '会议结果已保存' : analysisTranscriptRevision ? '录音已就绪，可以整理会议' : '原音已保存，先转成文字'}</h3><p>{analysisTranscriptRevision ? '先看摘要、决定和待办；随时可以回到原话。' : '在原始资料中完成转写后，再点击整理。'}</p></div>
+                {analysisOperation.status === 'analyzing' || analysis ? <button type="button" onClick={() => showDetailView('results')}>查看整理结果</button> : analysisTranscriptRevision ? <button type="button" onClick={startAnalysisFromUi} disabled={busy || !manager?.analysis}>一键整理会议</button> : <button type="button" onClick={() => showDetailView('materials')}>录音转文字</button>}
+              </section>
               <div className="meeting-future-punk__detail-layout">
                 <div className="meeting-future-punk__main-slot">
               <Section title="会议会话" action={<StatusPill state={activeState} />} className="meeting-v1-session-section">
@@ -1233,6 +1277,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
 
               <Section
                 title="音频来源"
+                className="meeting-v2-materials"
               >
                 <div className="grid min-w-0 gap-3">
                   <div className="rounded-[12px] bg-[color:var(--input-background)] px-3 py-3 text-xs leading-5 text-[color:var(--secondary-text)]" role="status">
@@ -1316,7 +1361,7 @@ function MeetingCenter({ onNavigate, currentUser, routeRecovery = null }) {
               {!playbackPanelSource ? analysisPanel : null}
 
               {activeTranscripts.length ? (
-                <Section title="原始文字校正">
+                <Section title="原始文字校正" className="meeting-v2-materials">
                   <div className="grid min-w-0 gap-4">
                     {activeTranscripts.map(({ source, transcript, mode }) => (
                       <div key={source.sourceId} className="grid min-w-0 gap-3">

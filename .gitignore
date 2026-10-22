@@ -28,8 +28,6 @@ memory-export-*
 # Local environment and provider secrets
 .env
 .env.*
-!.env.example
-!.env.*.example
 secrets/
 provider-keys*.json
 provider-secrets*.json
@@ -41,3 +39,24 @@ npm-debug.log*
 pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+
+# Public snapshot exclusions
+*.db
+*.db-*
+*.sqlite3
+*.key
+*.pem
+*.crt
+*.cer
+*.p12
+*.pfx
+*.mobileprovision
+*.keystore
+*.jks
+.netrc
+.npmrc
+credentials/
+backups/
+DerivedData/
+.build/
+.swiftpm/

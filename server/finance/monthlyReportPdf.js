@@ -23,6 +23,8 @@ export function buildMonthlyFinancePdfViewModel(snapshot) {
   assertMonthlyFinanceReportSnapshot(snapshot);
   return {
     title: snapshot.title,
+    summaryPrefix:snapshot.rangeReport?'本期':'本月',
+    accountingNote:snapshot.accountingNote||'',
     period: snapshot.period.label,
     timezone: snapshot.timezone,
     range: `${snapshot.period.startAt} — ${snapshot.period.endAt}`,
@@ -36,7 +38,7 @@ export function buildMonthlyFinancePdfViewModel(snapshot) {
     dailySummaries: snapshot.dailySummaries,
     entries: snapshot.entries.map((entry) => ({
       ...entry,
-      typeLabel: entry.type === 'income' ? '收入' : '支出',
+      typeLabel: {loan_out:'借出',loan_in:'借入',repayment_in:'还入',repayment_out:'还出'}[entry.subtype] || (entry.type === 'income' ? '收入' : '支出'),
       amount: formatCnyFromMinor(entry.signedAmountMinor)
     }))
   };
@@ -76,9 +78,9 @@ function drawSummary(doc, viewModel) {
   const width = 163;
   const gap = 11;
   const cards = [
-    ['本月收入', viewModel.summary.income, COLORS.income],
-    ['本月支出', viewModel.summary.expense, COLORS.expense],
-    ['本月结余', viewModel.summary.balance, COLORS.blue]
+    [`${viewModel.summaryPrefix}收入`, viewModel.summary.income, COLORS.income],
+    [`${viewModel.summaryPrefix}支出`, viewModel.summary.expense, COLORS.expense],
+    [`${viewModel.summaryPrefix}结余`, viewModel.summary.balance, COLORS.blue]
   ];
   cards.forEach(([label, value, color], index) => {
     const x = 42 + index * (width + gap);
@@ -144,25 +146,26 @@ export async function renderMonthlyFinancePdf(snapshot, { fontPath = DEFAULT_FON
     .text(`生成时间：${viewModel.generatedAt}`, { align: 'center' });
   doc.moveDown(1);
   drawSummary(doc, viewModel);
+  if(viewModel.accountingNote)doc.fillColor(COLORS.muted).fontSize(9).text(viewModel.accountingNote);
 
   heading(doc, viewModel, '收入分类汇总');
   drawAmountRows(doc, viewModel, viewModel.categorySummaries.income.map((row) => ({
     label: row.category, amount: formatCnyFromMinor(row.amountMinor)
-  })), '本月暂无收入记录');
+  })), '所选范围暂无收入记录');
 
   heading(doc, viewModel, '支出分类汇总');
   drawAmountRows(doc, viewModel, viewModel.categorySummaries.expense.map((row) => ({
     label: row.category, amount: formatCnyFromMinor(row.amountMinor)
-  })), '本月暂无支出记录');
+  })), '所选范围暂无支出记录');
 
   heading(doc, viewModel, '每日收支汇总');
   drawAmountRows(doc, viewModel, viewModel.dailySummaries.map((row) => ({
     label: row.localDate,
     amount: `收入 ${formatCnyFromMinor(row.incomeMinor)}  支出 ${formatCnyFromMinor(row.expenseMinor)}  结余 ${formatCnyFromMinor(row.balanceMinor)}`
-  })), '本月暂无每日汇总');
+  })), '所选范围暂无每日汇总');
 
   heading(doc, viewModel, `全部有效账目明细（${viewModel.entries.length}笔）`);
-  if (!viewModel.entries.length) doc.fillColor(COLORS.muted).fontSize(9).text('本月暂无有效账目。');
+  if (!viewModel.entries.length) doc.fillColor(COLORS.muted).fontSize(9).text('所选范围暂无有效账目。');
   for (const entry of viewModel.entries) drawEntry(doc, viewModel, entry);
 
   const range = doc.bufferedPageRange();

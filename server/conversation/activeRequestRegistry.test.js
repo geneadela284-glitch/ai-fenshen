@@ -1,0 +1,2 @@
+import test from 'node:test';import assert from 'node:assert/strict';import {ActiveRequestRegistry} from './activeRequestRegistry.js';
+test('新输入中止同用户同会话旧输出但不触及其他账号或会话',()=>{const r=new ActiveRequestRegistry();const add=(id,ownerId,conversationId)=>r.register({requestId:id,ownerId,conversationId,controller:new AbortController()});const a=add('1','a','c'),b=add('2','b','c'),c=add('3','a','d');add('4','a','c');assert.equal(a.controller.signal.aborted,true);assert.equal(b.controller.signal.aborted,false);assert.equal(c.controller.signal.aborted,false);r.close()});

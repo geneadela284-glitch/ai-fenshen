@@ -1,3 +1,4 @@
+import { PUBLIC_MESSAGES as ACCESS_MESSAGES } from '../access/accessErrors.js';
 import { createHash, timingSafeEqual } from 'node:crypto';
 
 export const DICTATION_PROVIDER_ID = 'local_whisper_cpp';
@@ -16,6 +17,9 @@ export const DICTATION_LIMITS = Object.freeze({
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:-]{7,199}$/;
 const AUDIO_HASH_PATTERN = /^[a-f0-9]{64}$/;
 const PUBLIC_MESSAGES = Object.freeze({
+  ...ACCESS_MESSAGES,
+  ACCOUNT_CONTEXT_MISMATCH: '账号状态已变化，请重新登录。',
+  AUDIO_NO_SPEECH: '没有听到有效语音，请重试。',
   VOICE_REQUEST_INVALID: '语音请求格式无效。',
   CLIENT_OWNER_FORBIDDEN: '语音请求不接受客户端身份。',
   AUDIO_EMPTY: '没有收到有效音频。',
@@ -26,8 +30,8 @@ const PUBLIC_MESSAGES = Object.freeze({
   ASR_BUSY: '语音转写繁忙，请稍后重试。',
   TIMEOUT: '语音转写超时，请重试。',
   TRANSCRIPTION_FAILED: '语音转写失败，请重试。',
-  ASR_ENGINE_UNAVAILABLE: '本地语音服务暂时不可用。',
-  ASR_MODEL_MISSING: '本地语音服务暂时不可用。',
+  ASR_ENGINE_UNAVAILABLE: '语音识别服务暂时不可用。',
+  ASR_MODEL_MISSING: '语音识别服务暂时不可用。',
   CANCELLED: '语音转写已取消。'
 });
 

@@ -56,7 +56,7 @@ test('real settings entry uses the authenticated user and existing server client
 
   assert.notEqual(view, '', 'RealSettingsView.jsx must exist');
   assert.match(app, /RealSettingsView/);
-  assert.match(app, /logoutAccount/);
+  assert.match(app, /logoutAndClearNativeSession/);
   assert.match(app, /featureView === 'settings'/);
   assert.match(view, /fetchAdminAiSettings/);
   assert.match(view, /saveAdminProvider/);
@@ -66,7 +66,7 @@ test('real settings entry uses the authenticated user and existing server client
   assert.match(view, /保存成功/);
   assert.match(view, /连接成功，但状态保存失败/);
   assert.match(view, /setTimeout\(onBack, SAVE_RETURN_DELAY\)/);
-  assert.match(view, /长期记忆：已启用/);
+  assert.match(view, /保存结果以本机回执为准/);
   assert.match(view, /你的专属AI数字分身/);
   assert.match(view, /退出登录/);
   assert.doesNotMatch(view, /dangerouslySetInnerHTML|databasePath|ownerId|entityId|confidence|baseUrl|defaultModel|router|token/i);

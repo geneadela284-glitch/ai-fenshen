@@ -1981,3 +1981,74 @@
 .meeting-v1-app-shell--home .meeting-v1-meeting-row-delete:focus-visible {
   outline-color: #983e50;
 }
+
+/* Scoped presentation only: keep recorder, playback and analysis mounted. */
+.meeting-v1-app-shell [hidden] { display: none !important; }
+.meeting-v1-app-shell:not([data-meeting-view="materials"]) .meeting-v2-materials,
+.meeting-v1-app-shell:not([data-meeting-view="materials"]) .meeting-playback-panel--transcript { display: none !important; }
+.meeting-v1-app-shell[data-meeting-view="results"] .meeting-v1-session-section,
+.meeting-v1-app-shell[data-meeting-view="materials"] .meeting-v1-session-section,
+.meeting-v1-app-shell[data-meeting-view="results"] .meeting-playback-panel:not(.meeting-playback-panel--transcript) { display: none !important; }
+.meeting-v1-app-shell .meeting-future-punk__detail-layout { grid-template-columns: minmax(0,1fr); }
+.meeting-v1-app-shell .meeting-v2-detail-heading { padding: 6px 2px; min-width: 0; }
+.meeting-v2-eyebrow { font-size: 11px; letter-spacing: .14em; color: #64748b; margin: 0 0 6px; }
+.meeting-v2-detail-heading h2 { font-size: 22px; font-weight: 650; color: #172c3b; line-height: 1.4; overflow-wrap: anywhere; margin: 0 0 16px; }
+.meeting-v2-view-switch { display: flex; padding: 4px; gap: 4px; background: #eaf0f3; border: 1px solid #dce5ea; border-radius: 16px; }
+.meeting-v2-view-switch button { flex: 1; min-height: 44px; padding: 8px 4px; border-radius: 12px; color: #536574; font-size: 13px; font-weight: 600; }
+.meeting-v2-view-switch button[aria-pressed="true"] { background: #fff; color: #183e4d; box-shadow: 0 2px 5px #173e4c12; }
+.meeting-v2-view-switch button:disabled { opacity: .45; }
+.meeting-v2-next-step { background: #e9f1f0; border: 1px solid #c8ded9; border-radius: 20px; padding: 18px; display: grid; gap: 14px; }
+.meeting-v2-next-step h3 { color: #183e3a; font-size: 16px; font-weight: 650; }
+.meeting-v2-next-step p { color: #526e69; font-size: 13px; line-height: 1.7; margin-top: 5px; }
+.meeting-v2-next-step button { min-height: 48px; background: #23584e; color: #fff; border-radius: 13px; padding: 10px 16px; font-size: 15px; font-weight: 600; }
+.meeting-v2-next-step button:disabled { opacity: .5; }
+.meeting-v2-result-slot { min-width: 0; }
+/* A compact row action; the edit form lives in the browser's modal layer. */
+.meeting-v1-app-shell--light .meeting-v1-meeting-row { padding-right: 52px; }
+.meeting-v3-options { position: absolute; z-index: 2; right: 5px; top: 8px; width: 44px; height: 44px; border: 0; border-radius: 12px; background: transparent; color: #617571; -webkit-text-fill-color: currentColor; font-size: 26px; line-height: 1; }
+.meeting-v3-options:active { background: #e7efeb; }
+.meeting-v3-menu { position: fixed; margin: 0; padding: 5px; width: 156px; border: 1px solid #e1e7e3; border-radius: 13px; background: #fff; box-shadow: 0 8px 30px #173b3020; }
+.meeting-v3-menu button { width: 100%; min-height: 44px; padding: 10px 14px; text-align: left; border: 0; background: transparent; color: #28483f; font: 15px system-ui, sans-serif; border-radius: 9px; }
+.meeting-v3-menu button:hover { background: #f1f5f3; }
+.meeting-v3-rename-dialog { box-sizing: border-box; position: fixed; inset: 0; margin: auto; width: min(340px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow: auto; padding: 24px; border: 1px solid #e4eae6; border-radius: 22px; background: #fff; color: #203e36; box-shadow: 0 20px 70px #163b3026; font-family: system-ui, sans-serif; }
+.meeting-v3-rename-dialog::backdrop { background: #102b254d; }
+.meeting-v3-rename-dialog h2 { margin: 0 0 22px; font-size: 19px; font-weight: 650; color: #203e36; }
+.meeting-v3-rename-dialog label { display: block; margin-bottom: 8px; color: #657a72; font-size: 13px; }
+.meeting-v3-rename-dialog input { box-sizing: border-box; width: 100%; min-width: 0; height: 48px; padding: 0 12px; border: 1px solid #cbd8d1; border-radius: 11px; background: #f8faf9 !important; color: #203e36 !important; -webkit-text-fill-color: #203e36 !important; font-size: 16px; }
+.meeting-v3-rename-dialog input:focus { outline: 2px solid #356957; outline-offset: 2px; }
+.meeting-v3-rename-actions { display: flex; gap: 10px; margin-top: 24px; }
+.meeting-v3-rename-actions button { flex: 1; min-height: 44px; border: 0; border-radius: 11px; background: #eef3f0; color: #50675d; font-size: 15px; font-weight: 550; }
+.meeting-v3-rename-actions button[type="submit"] { background: #285a48; color: #fff; }
+.meeting-v3-rename-actions button:disabled { opacity: .5; }
+.meeting-v3-rename-dialog p { font-size: 13px; line-height: 1.6; color: #a24936; margin-top: 12px; }
+.meeting-v3-options:focus-visible,.meeting-v2-view-switch button:focus-visible { outline: 2px solid #356957; outline-offset: -2px; }
+
+.meeting-v1-app-shell.meeting-v1-app-shell--light { background: #f3f5f3 !important; --primary-text: #193b40; --secondary-text: #65787a; --surface-background: #fff; --input-background: #f1f5f4; --border-color: #dce5e1; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light::before,
+.meeting-v1-app-shell.meeting-v1-app-shell--light::after { display: none; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-v1-topbar { background: transparent; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-v1-top-action { background: white; color: #234a4b; box-shadow: none; border: 1px solid #d5e1dc; width: auto; min-width: 48px; min-height: 44px; padding: 8px 12px; border-radius: 14px; font-size: 14px; white-space: nowrap; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-v1-top-action__label { color: #234a4b; }
+.meeting-v1-app-shell:not([data-meeting-view="materials"]) .meeting-future-punk__context-slot,
+.meeting-v1-app-shell[data-meeting-state="stopped"] .meeting-v1-session-section { display: none !important; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-analysis,
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-playback-panel { background: white; border-color: #dce5e1; color: #23484b; box-shadow: 0 6px 20px #25493b05; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-stage3c-recording-card--future { padding: 16px; border: 1px solid #d6ded8; border-radius: 22px; background: #fffefb; }
+.meeting-v1-app-shell.meeting-v1-app-shell--light .meeting-stage3c-recording-hero { min-height: 120px; height: 120px; position: relative; margin: 0 0 14px; border: 7px solid #d4c6a9; border-radius: 16px; background: linear-gradient(#fbf0d5 0 22%, #363b3b 22% 74%, #dfd2b4 74%); box-shadow: inset 0 0 0 1px #81745b; }
+.meeting-v1-app-shell .meeting-stage3c-recording-hero-copy,
+.meeting-v1-app-shell .meeting-stage3c-recording-orb { display: none !important; }
+.meeting-v1-app-shell .meeting-stage3c-recording-hero::before,
+.meeting-v1-app-shell .meeting-stage3c-recording-hero::after { content: ''; position: absolute; width: 52px; height: 52px; top: 26px; border: 7px solid #e8e1d1; border-radius: 50%; background: repeating-conic-gradient(#81775f 0deg 15deg,#ede7d9 15deg 60deg); box-shadow: 0 0 0 3px #242b2b,inset 0 0 0 12px #b5ad9c; animation: meeting-cassette-spin 3s linear infinite paused; }
+.meeting-v1-app-shell .meeting-stage3c-recording-hero::before { left: 18%; }
+.meeting-v1-app-shell .meeting-stage3c-recording-hero::after { right: 18%; }
+.meeting-v1-app-shell .meeting-stage3c-recording-root[data-recording-state="recording"] .meeting-stage3c-recording-hero::before,
+.meeting-v1-app-shell .meeting-stage3c-recording-root[data-recording-state="recording"] .meeting-stage3c-recording-hero::after { animation-play-state: running; }
+.meeting-v1-app-shell .meeting-stage3c-recording-timer { font-size: 44px !important; }
+.meeting-v1-app-shell .meeting-stage3c-recording-header { margin-top: 8px; }
+.meeting-v1-app-shell .meeting-stage3c-recording-controls button { min-height: 48px; }
+@keyframes meeting-cassette-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) { .meeting-v1-app-shell .meeting-stage3c-recording-hero::before,.meeting-v1-app-shell .meeting-stage3c-recording-hero::after { animation: none; } }
+
+.meeting-v1-app-shell--light .meeting-playback-panel__button { -webkit-text-fill-color: currentColor !important; color: #24584e !important; background: #eef6f2 !important; border-color: #bfd8cc !important; min-height: 44px; }
+.meeting-v1-app-shell--light .meeting-playback-panel__button--play { color: #fff !important; background: #24584e !important; }
+.meeting-v1-app-shell--light .meeting-playback-panel__button:disabled { opacity: .5; }

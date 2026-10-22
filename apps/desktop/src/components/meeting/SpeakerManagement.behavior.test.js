@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import React from 'react';
@@ -12,8 +13,8 @@ let timelineModule;
 
 before(async () => {
   vite = await createServer({
-    root: new URL('../../../', import.meta.url).pathname,
-    configFile: new URL('../../../vite.config.js', import.meta.url).pathname,
+    root: fileURLToPath(new URL('../../../', import.meta.url)),
+    configFile: fileURLToPath(new URL('../../../vite.config.js', import.meta.url)),
     appType: 'custom',
     logLevel: 'error',
     css: { postcss: { plugins: [] } },

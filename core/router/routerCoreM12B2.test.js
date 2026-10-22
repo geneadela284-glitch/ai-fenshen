@@ -3,7 +3,6 @@ import { test } from 'node:test';
 
 import { createMemoryStorage } from '../storage/memoryStorage.js';
 import { AIRouter } from './AIRouter.js';
-import { ModelRegistry } from './ModelRegistry.js';
 import { allowingAccessControl } from './testing/allowingAccessControl.js';
 import { CAPABILITIES } from './CapabilityMap.js';
 import { InvocationTraceRepository } from './InvocationTraceRepository.js';
@@ -54,7 +53,7 @@ function settings(overrides = {}) {
   };
 }
 
-function providers(behaviors = {}, capabilityOverrides = {}) {
+function providers(behaviors = {}) {
   const calls = [];
   async function invoke(request) {
     calls.push(structuredClone(request));
@@ -70,14 +69,6 @@ function providers(behaviors = {}, capabilityOverrides = {}) {
   }
   return {
     calls,
-    getCapabilities(providerId) {
-      return capabilityOverrides[providerId] || {
-        supportsChat: true,
-        supportsStreaming: true,
-        supportsVoiceStreaming: true,
-        supportsSingleShotSseBridge: false
-      };
-    },
     chat: invoke,
     generate: invoke,
     streamChat: async (request, options = {}) => {
@@ -88,13 +79,12 @@ function providers(behaviors = {}, capabilityOverrides = {}) {
   };
 }
 
-function routerFixture(behaviors = {}, settingsOverride = {}, capabilityOverrides = {}) {
-  const providerAdapter = providers(behaviors, capabilityOverrides);
+function routerFixture(behaviors = {}, settingsOverride = {}) {
+  const providerAdapter = providers(behaviors);
   const traces = new InvocationTraceRepository({ storage: createMemoryStorage() });
   const router = new AIRouter({
     accessControl: allowingAccessControl,
     providers: providerAdapter,
-    registry: new ModelRegistry({ providers: providerAdapter }),
     settings: settings(settingsOverride),
     traces,
     maxAttempts: 2
@@ -439,32 +429,6 @@ test('ordinary-chat streaming falls back once before any delta and never after a
   const partial = await partialRouter.stream(task('ordinary_chat'), { onDelta() {} });
   assert.equal(partial.error.code, 'TIMEOUT');
   assert.deepEqual(calls, ['deepseek']);
-});
-
-test('voice streaming does not fall back to a single-shot bridge before any delta', async () => {
-  const voice = routerFixture(
-    { deepseek: fault('TIMEOUT'), qwen: { content: 'qwen stream' } },
-    {},
-    {
-      qwen: {
-        supportsChat: true,
-        supportsStreaming: false,
-        supportsVoiceStreaming: false,
-        supportsSingleShotSseBridge: true
-      }
-    }
-  );
-  const deltas = [];
-  const result = await voice.router.stream(task('ordinary_chat', {
-    metadata: { voiceRealtimeOnly: true }
-  }), {
-    onDelta(delta) { deltas.push(delta); }
-  });
-
-  assert.equal(result.selectedProvider, 'deepseek');
-  assert.deepEqual(voice.providerAdapter.calls.map((call) => call.provider), ['deepseek']);
-  assert.equal(result.error.code, 'TIMEOUT');
-  assert.deepEqual(deltas, []);
 });
 
 test('authentication and other forbidden 4xx failures never invoke Qwen', async () => {

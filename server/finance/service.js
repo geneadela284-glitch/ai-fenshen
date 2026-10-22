@@ -9,13 +9,14 @@ const INCOME_SIGNALS = /(?:收到|收入|工资|奖金|入账|进账|还我|转�
 const FINANCE_SIGNAL = /(?:元|块|收入|支出|花钱|花了|账|工资|客户款|回款|退款|转入|撤销上一笔|删除刚才|改成|收支)/;
 const MODEL_ONLY_FINANCE_SIGNALS = /(?:分析|总结|预测|趋势|对比|分类|统计|查询|明细|合计|建议|解释|多少|多少钱|几笔|哪些|结余|情况|怎么样|知道)/;
 const MONEY_CHARACTERS = '零〇一二两三四五六七八九十百千万亿';
-const MONEY_TOKEN_WITH_CURRENCY = new RegExp(`(?:\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]+)\\s*(?:元|块钱?|人民币)`, 'gu');
+const CHINESE_DECIMAL_TOKEN = `[${MONEY_CHARACTERS}]+点[零〇一二两三四五六七八九]+`;
+const MONEY_TOKEN_WITH_CURRENCY = new RegExp(`(?:${CHINESE_DECIMAL_TOKEN}|\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]+)\\s*(?:元|块钱?|人民币)`, 'gu');
 // A bare single Chinese numeral is only accepted as the distinctive “十”.
 // Accepting every single numeral inside arbitrary text would turn names such
 // as “张三” into a false amount. Exact one-character replies are handled
 // separately below, so slot replies like “一” remain deterministic too.
-const MONEY_TOKEN_AT_END = new RegExp(`(?:\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]{2,}|十)(?=\\s*[。！？!?，,；;]?\\s*$)`, 'u');
-const MONEY_TOKEN_ANYWHERE = new RegExp(`(?:\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]{2,})`, 'gu');
+const MONEY_TOKEN_AT_END = new RegExp(`(?:${CHINESE_DECIMAL_TOKEN}|\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]{2,}|十)(?=\\s*[。！？!?，,；;]?\\s*$)`, 'u');
+const MONEY_TOKEN_ANYWHERE = new RegExp(`(?:${CHINESE_DECIMAL_TOKEN}|\\d+(?:\\.\\d+)?(?:\\s*[十百千万亿])?|[${MONEY_CHARACTERS}]{2,})`, 'gu');
 const AMBIGUOUS_RELATION = /[\u4e00-\u9fff]{2,6}借我/u;
 
 const CATEGORY_RULES = [
@@ -75,19 +76,21 @@ export function extractAmountMinorEvidence(text, {
   if (explicit.length === 1) return explicit[0];
   if (!allowUnitless) return emptyAmountEvidence();
 
-  const shortReply = source.trim();
+  // Calendar numbers are date evidence, never a unitless money amount.
+  const unitlessSource = source.replace(/(?:\d{4}年)?\d{1,2}月\d{1,2}日/gu, '');
+  const shortReply = unitlessSource.trim();
   if (/^[零〇一二两三四五六七八九十]$/u.test(shortReply)) {
     return normalizeMoneyToken(shortReply);
   }
 
-  const suffix = source.match(MONEY_TOKEN_AT_END);
+  const suffix = unitlessSource.match(MONEY_TOKEN_AT_END);
   if (suffix) {
-    const suffixIndex = source.lastIndexOf(suffix[0]);
-    const prefix = source.slice(Math.max(0, suffixIndex - 2), suffixIndex);
+    const suffixIndex = unitlessSource.lastIndexOf(suffix[0]);
+    const prefix = unitlessSource.slice(Math.max(0, suffixIndex - 2), suffixIndex);
     if (/[负+\-]\s*$/u.test(prefix)) return emptyAmountEvidence('invalid', suffix[0].trim());
     return normalizeMoneyToken(suffix[0]);
   }
-  const anywhere = [...source.matchAll(MONEY_TOKEN_ANYWHERE)]
+  const anywhere = [...unitlessSource.matchAll(MONEY_TOKEN_ANYWHERE)]
     .map((match) => {
       const prefix = source.slice(Math.max(0, match.index - 2), match.index);
       if (/[负+\-]\s*$/u.test(prefix)) return emptyAmountEvidence('invalid', match[0].trim());
@@ -324,7 +327,7 @@ export function planDeterministicFinanceBatch(message, {
   };
 }
 
-function classifyCategory(message, type) {
+export function classifyCategory(message, type) {
   const match = CATEGORY_RULES.find(([, pattern]) => pattern.test(message))?.[0];
   if (match && isAllowedCategory(type, match)) return match;
   return type === 'income' ? '其他收入' : '其他';

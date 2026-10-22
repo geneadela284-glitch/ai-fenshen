@@ -4,7 +4,8 @@ import { validateProjection, encodeDocumentMessage, decodeDocumentMessage, docum
 import { answerDocument } from '../../core/documentQa/answer.js';
 import { validateMeetingEvidence, formatMeetingReply, classifyMeetingQuery, MEETING_QUERY_SCHEMA } from '../../core/meetingQuery/queryContract.js';
 import { randomUUID } from 'node:crypto';
-import { buildAIFenshenMessages } from './productPolicy.js';
+import { buildAIFenshenContext } from './productPolicy.js';
+import { validateLocalMemoryEvidence, explicitMemoryText, memoryReceiptMessage, localMemoryDataMessage, filterMemoryHistory } from '../../core/memory/localEvidence.js';
 
 function codedError(code, message = code) {
   const error = new Error(message);
@@ -14,7 +15,7 @@ function codedError(code, message = code) {
 
 const MEMORY_ACKNOWLEDGEMENT = /(?:已经|我(?:已经)?|会|一定会|帮你|替你|好[的嘞]?[,，]?)?\s*(?:记住|记下|保存|写入|永久记录)|(?:收到[,，]?\s*)?(?:已经|已)\s*(?:记录|更新|修改)/;
 const DURABLE_MEMORY_SIGNAL = /(?:生日|出生|喜欢|偏好|习惯|请记住|帮我记|记一下)/;
-const EXPLICIT_MEMORY_REQUEST = /(?:请记住|帮我记|记一下|请记录|记录一下)/;
+const EXPLICIT_MEMORY_REQUEST = /^(?:(?:请|帮我|替我)\s*)?(?:记住|记一下|记下|以后记得|请记录|记录一下)|^(?:please\s+)?remember\b/iu;
 const COMMITTED_MEMORY_OUTCOMES = new Set(['memory_written', 'duplicate_detected', 'memory_corrected']);
 const FORBIDDEN_MEMORY_OUTPUT_FRAGMENTS = Object.freeze([
   'undefined', 'null', 'owner_id', 'ownerId', 'entity_id', 'entityId',
@@ -37,7 +38,7 @@ function reviewMemoryAcknowledgement(message, memoryResult) {
 function safeMemoryResponse(content, memoryResult, message) {
   const text = String(content || '').trim();
   if (!MEMORY_ACKNOWLEDGEMENT.test(text)) return text;
-  if (!memoryResult) return text;
+  if (!memoryResult && !EXPLICIT_MEMORY_REQUEST.test(String(message || ''))) return text;
   if (!COMMITTED_MEMORY_OUTCOMES.has(memoryResult?.outcome)) {
     return '这条信息暂时没能记下来，请稍后再试。';
   }
@@ -71,7 +72,7 @@ export class ConversationService {
   }
 
   prepare({ ownerId, conversationId, message, clientRequestId, retry = false, requestId: suppliedRequestId = null,
-    invocation = null, taskTimezone = null, attachmentIds = [], meetingQuery = null, documentQuery = null }) {
+    invocation = null, taskTimezone = null, attachmentIds = [], meetingQuery = null, documentQuery = null, localMemory = null }) {
     const owner = String(ownerId || '').trim();
     const content = String(message || '').trim();
     const clientId = String(clientRequestId || '').trim();
@@ -80,6 +81,7 @@ export class ConversationService {
     if (!content) throw codedError('MESSAGE_REQUIRED');
     if (content.length > 32_000) throw codedError('MESSAGE_TOO_LONG');
     if (!clientId || clientId.length > 160) throw codedError('CLIENT_REQUEST_ID_INVALID');
+    const localMemoryEvidence = localMemory == null ? null : validateLocalMemoryEvidence(localMemory, { ownerId: owner, question: content });
     const normalizedAttachmentIds = [...new Set(
       (Array.isArray(attachmentIds) ? attachmentIds : [])
         .map((value) => String(value || '').trim())
@@ -112,6 +114,7 @@ export class ConversationService {
 
     const existing = conversation ? this.messages.findByClientRequestId(conversation.id, owner, clientId) : { user: null, assistant: null };
     if (existing.user && (documentEvidence || decodeDocumentMessage(existing.user.content)?.kind === 'question') && existing.user.content !== storedContent) throw documentError('DOCUMENT_REQUEST_CONFLICT');
+    if (existing.user && existing.user.content !== storedContent) throw codedError('REQUEST_CONTENT_CONFLICT');
     if (meetingEvidence && existing.user && existing.user.content !== content) throw codedError('MEETING_QUERY_INVALID');
     if (existing.user && retry === true && existing.assistant && ['error', 'stopped'].includes(existing.assistant.status)) {
       if (!this.messages.restartAssistantMessage({ ownerId: owner, messageId: existing.assistant.id })) {
@@ -134,6 +137,7 @@ export class ConversationService {
         meetingQuery: meetingEvidence,
         documentQuery: documentEvidence,
         documentQuestion: content,
+        localMemory: localMemoryEvidence,
         attachmentIds: normalizedAttachmentIds
       };
     }
@@ -144,6 +148,7 @@ export class ConversationService {
         meetingQuery: meetingEvidence,
         documentQuery: documentEvidence,
         documentQuestion: content,
+        localMemory: localMemoryEvidence,
         attachmentIds: normalizedAttachmentIds
       };
     }
@@ -177,11 +182,12 @@ export class ConversationService {
       meetingQuery: meetingEvidence,
         documentQuery: documentEvidence,
         documentQuestion: content,
+        localMemory: localMemoryEvidence,
         attachmentIds: normalizedAttachmentIds
     };
   }
 
-  async execute(prepared, { signal, onDelta = () => {} } = {}) {
+  async execute(prepared, { signal, onDelta = () => {}, onAttachmentProgress = () => {} } = {}) {
     if (prepared.deduplicated) {
       const status = prepared.assistantMessage?.status || 'error';
       return { status, content: prepared.assistantMessage?.content || '', deduplicated: true };
@@ -192,8 +198,19 @@ export class ConversationService {
     if (signal?.aborted) forwardAbort();
     else signal?.addEventListener('abort', forwardAbort, { once: true });
     let buffer = '';
+    let reviewingMemory = false;
     let finalStatus = 'error';
     try {
+      if (prepared.localMemory && (explicitMemoryText(userMessage.content) || prepared.localMemory.state === 'error')) {
+        if (controller.signal.aborted) throw codedError('ABORTED');
+        const content = explicitMemoryText(userMessage.content) ? memoryReceiptMessage(userMessage.clientRequestId)
+          : '暂时无法读取本机长期记忆，请稍后重试；这不表示之前没有保存过。';
+        await onDelta(content); buffer = content;
+        if (controller.signal.aborted) throw codedError('ABORTED');
+        this.messages.completeAssistantMessage({ ownerId, messageId: assistantMessage.id, content });
+        this.conversations.touchForOwner(conversation.id, ownerId); finalStatus = 'completed';
+        return { status: finalStatus, content, deterministicAction: 'local_memory_display' };
+      }
       if (prepared.documentQuery) {
         const history = this.messages.listForConversationOwner(conversation.id, ownerId).filter(m => m.id !== userMessage.id);
         const content = await answerDocument({ document: prepared.documentQuery, question: prepared.documentQuestion,
@@ -217,25 +234,41 @@ export class ConversationService {
         finalStatus = 'completed';
         return { status: finalStatus, content, deterministicAction: 'meeting.query' };
       }
-      const history = this.messages.listForConversationOwner(conversation.id, ownerId)
+      const history = filterMemoryHistory(this.messages.listForConversationOwner(conversation.id, ownerId)
         .filter((item) => item.id !== assistantMessage.id && !decodeDocumentMessage(item.content))
-        .map((item) => ({ role: item.role, content: item.role === 'assistant' && item.voiceDelivery
-          ? stripPlaybackNotes(item.content) : item.content }));
-      if (prepared.attachmentIds?.length) {
+        .map((item) => ({ id:item.id, clientRequestId:item.clientRequestId, status:item.status, role: item.role, content: item.role === 'assistant' && item.voiceDelivery
+          ? stripPlaybackNotes(item.content) : item.content })), prepared.localMemory);
+      const followup = !prepared.attachmentIds?.length ? this.attachmentProcessor?.resolveFollowup?.({ownerId,conversationId:conversation.id,question:userMessage.content,messageId:userMessage.id}) : null;
+      if (followup?.clarification) {
+        if (controller.signal.aborted) throw codedError('ABORTED');
+        buffer = followup.clarification; await onDelta(buffer);
+        if (controller.signal.aborted) throw codedError('ABORTED');
+        this.messages.completeAssistantMessage({ownerId,messageId:assistantMessage.id,content:buffer});
+        this.conversations.touchForOwner(conversation.id,ownerId); finalStatus='completed';
+        return {status:finalStatus,content:buffer,deterministicAction:'attachment_clarification'};
+      }
+      const imageIds = prepared.attachmentIds?.length ? prepared.attachmentIds : followup?.attachmentIds;
+      if (imageIds?.length) {
+        const imageContext = buildAIFenshenContext(history);
         const attachmentResult = await this.attachmentProcessor.processAttachmentsForMessage({
           authenticatedUserId: ownerId,
           conversationId: conversation.id,
           messageId: userMessage.id,
-          attachmentIds: prepared.attachmentIds,
+          attachmentIds: imageIds,
+          followup: !!followup,
+          conversationContext: JSON.stringify({ stageContext: imageContext.stageContext, messages: imageContext.messages.slice(1) }) + (localMemoryDataMessage(prepared.localMemory)?.content || ''),
           userQuestion: userMessage.content,
           clientRequestId: userMessage.clientRequestId,
           retry: prepared.retried === true,
+          onProgress: event => { if (!controller.signal.aborted) onAttachmentProgress(event); },
           invocation: prepared.invocation || {}
         });
+        if (controller.signal.aborted) throw codedError('ABORTED');
         const content = String(attachmentResult?.answer || '');
         if (!content) throw codedError('ATTACHMENT_PROCESSING_FAILED');
         await onDelta(content);
         buffer = content;
+        if (controller.signal.aborted) throw codedError('ABORTED');
         finalStatus = 'completed';
         this.messages.completeAssistantMessage({
           ownerId,
@@ -272,13 +305,16 @@ export class ConversationService {
             sourceMessageId: userMessage.id,
             ...(prepared.taskTimezone ? { taskTimezone: prepared.taskTimezone } : {}),
             conversationMessages: history,
+            ...(prepared.localMemory ? { localMemoryEvidence: prepared.localMemory } : {}),
             captureEligible: prepared.retried !== true,
             ...(prepared.invocation ? { invocation: prepared.invocation } : {})
           });
+          if (controller.signal.aborted) throw codedError('ABORTED');
           if (agentResult?.handled && agentResult.domain !== 'memory') {
             const content = String(agentResult.content || '');
             if (content) await onDelta(content);
             buffer = content;
+            if (controller.signal.aborted) throw codedError('ABORTED');
             if (agentResult.domain === 'finance' && agentResult.action === 'error') {
               finalStatus = 'error';
               const code = agentResult.code || 'FINANCE_HANDLER_FAILED';
@@ -304,6 +340,8 @@ export class ConversationService {
           }
           if (agentResult?.domain === 'memory') memoryResult = agentResult;
         } catch (error) {
+          if (controller.signal.aborted || error?.code === 'ABORTED') throw error;
+          if (error?.code === 'ASSISTANT_SEMANTIC_PLANNER_UNAVAILABLE') throw error;
           if (this.voiceMode && String(error?.code || '').startsWith('VOICE_')) throw error;
           if (this.assistantAgent.isMemoryQuery?.(userMessage.content, {
             ownerId,
@@ -355,12 +393,18 @@ export class ConversationService {
         return { status: finalStatus, content };
       }
 
-      const reviewMemoryResponse = this.memoryPolicy === 'protected_acceptance' &&
-        reviewMemoryAcknowledgement(userMessage.content, memoryResult);
+      const reviewMemoryResponse = EXPLICIT_MEMORY_REQUEST.test(userMessage.content) ||
+        (this.memoryPolicy === 'protected_acceptance' && reviewMemoryAcknowledgement(userMessage.content, memoryResult));
+      reviewingMemory = reviewMemoryResponse;
 
+      const modelContext = buildAIFenshenContext(history, { trustedMemoryContext: memoryResult?.trustedContext || null, capabilities: { localMemory: prepared.localMemory?.state === 'available', images: Boolean(this.attachmentProcessor), documents: this.documentQaEnabled } });
+      const modelMessages = modelContext.messages;
+      const localData = localMemoryDataMessage(prepared.localMemory);
+      if (localData) modelMessages.splice(Math.max(1, modelMessages.length - 1), 0, localData);
       const result = await this.aiService.stream({
         input: userMessage.content,
-        messages: buildAIFenshenMessages(history, { trustedMemoryContext: memoryResult?.trustedContext || null }),
+        messages: modelMessages,
+        conversationStageContext: modelContext.stageContext,
         metadata: {
           memoryPolicy: 'disabled',
           protectedMemoryScope: this.memoryPolicy,
@@ -382,11 +426,13 @@ export class ConversationService {
       }, prepared.invocation || {});
 
       if (controller.signal.aborted || result?.code === 'ABORTED') {
+        if (reviewingMemory) buffer = '';
         finalStatus = 'stopped';
         this.messages.stopAssistantMessage({ ownerId, messageId: assistantMessage.id, content: buffer });
         return { status: finalStatus, content: buffer };
       }
       if (!result?.ok) {
+        if (reviewingMemory) buffer = '';
         finalStatus = 'error';
         this.messages.failAssistantMessage({ ownerId, messageId: assistantMessage.id, content: buffer, errorCode: result?.code || 'PROVIDER_ERROR' });
         return { status: finalStatus, content: buffer, code: result?.code || 'PROVIDER_ERROR' };
@@ -399,6 +445,7 @@ export class ConversationService {
       this.conversations.touchForOwner(conversation.id, ownerId);
       return { status: finalStatus, content };
     } catch (error) {
+      if (reviewingMemory) buffer = '';
       if (controller.signal.aborted || error?.code === 'ABORTED') {
         finalStatus = 'stopped';
         this.messages.stopAssistantMessage({ ownerId, messageId: assistantMessage.id, content: buffer });
