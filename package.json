@@ -30,7 +30,7 @@
   "dependencies": {
     "exceljs": "4.4.0",
     "lunar-javascript": "1.7.7",
-    "pdfkit": "0.19.1",
+    "pdfkit": "0.20.2",
     "pdfjs-dist": "6.3.289",
     "fflate": "0.8.3",
     "undici": "7.30.0"
