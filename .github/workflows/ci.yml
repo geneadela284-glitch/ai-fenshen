@@ -18,9 +18,10 @@ jobs:
         with:
           node-version: 22
           cache: pnpm
-      - name: Install dependencies
+      # The snapshot must stay installable: --frozen-lockfile fails on
+      # lockfile drift, which is exactly the class of break this guards.
+      # The repo's own test suites are intentionally NOT run here: they
+      # depend on internal state documents and branches that are excluded
+      # from this public, scrubbed snapshot by design.
+      - name: Verify snapshot installs cleanly
         run: pnpm install --frozen-lockfile
-      - name: Project-state tests
-        run: pnpm run test:project-state
-      - name: Release-runtime tests
-        run: pnpm run test:release-runtime
